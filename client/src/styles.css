@@ -196,4 +196,33 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 .register { width: min(360px, 100%); }
 .register h1 { margin-bottom: 8px; }
 
-footer { margin-top: 12px; }
+/* Page nav */
+.pages { display: flex; gap: 4px; }
+.page {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.page:hover { color: var(--text); }
+.page.active { border-color: var(--border); background: var(--panel); color: var(--text); }
+
+/* Tables (portfolio, leaderboard) */
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 4px 8px; }
+.table td { padding: 6px 8px; border-top: 1px solid var(--border); }
+.table .num { text-align: right; }
+.table td.up { color: var(--up); }
+.table td.down { color: var(--down); }
+.table tr.me td { background: rgba(212, 167, 44, 0.08); }
+.sym-link { color: var(--text); font-weight: 600; padding: 0; }
+
+.portfolio { display: grid; gap: 12px; }
+.portfolio .panel { overflow-x: auto; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.big { font-size: 20px; font-weight: 600; }
+.big.up { color: var(--up); }
+.big.down { color: var(--down); }
+.leaderboard { max-width: 640px; }

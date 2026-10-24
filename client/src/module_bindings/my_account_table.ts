@@ -17,4 +17,5 @@ export default __t.row({
   cashReserved: __t.u64().name("cash_reserved"),
   createdAt: __t.timestamp().name("created_at"),
   isBot: __t.bool().name("is_bot"),
+  startingNetWorth: __t.u64().name("starting_net_worth"),
 });

@@ -34,4 +34,13 @@ export function fmtTime(micros: bigint): string {
   });
 }
 
-export const cmpBig = (a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0);
+/** Signed percentage change from `from` to `to`, e.g. "+3.25%". */
+export function fmtReturn(from: bigint, to: bigint): string {
+  if (from === 0n) return '—';
+  const bps = ((to - from) * 10_000n) / from;
+  const sign = bps > 0n ? '+' : bps < 0n ? '-' : '';
+  const abs = bps < 0n ? -bps : bps;
+  return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}%`;
+}
+
+export const cmpBig =(a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0);

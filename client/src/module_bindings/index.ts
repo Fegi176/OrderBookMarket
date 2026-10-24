@@ -44,6 +44,7 @@ import RegisterReducer from "./register_reducer";
 // Import all table schema definitions
 import CandleRow from "./candle_table";
 import InstrumentRow from "./instrument_table";
+import LeaderboardRow from "./leaderboard_table";
 import MyAccountRow from "./my_account_table";
 import MyHoldingsRow from "./my_holdings_table";
 import NewsRow from "./news_table";
@@ -130,6 +131,13 @@ const tablesSchema = __schema({
       { name: 'trade_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, TradeRow),
+  leaderboard: __table({
+    name: 'leaderboard',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, LeaderboardRow),
   myAccount: __table({
     name: 'my_account',
     indexes: [

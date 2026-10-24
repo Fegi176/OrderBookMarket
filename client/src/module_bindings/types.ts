@@ -17,6 +17,7 @@ export const Account = __t.object("Account", {
   cashReserved: __t.u64(),
   createdAt: __t.timestamp(),
   isBot: __t.bool(),
+  startingNetWorth: __t.u64(),
 });
 export type Account = __Infer<typeof Account>;
 
@@ -66,6 +67,17 @@ export const Instrument = __t.object("Instrument", {
   lastPrice: __t.u64(),
 });
 export type Instrument = __Infer<typeof Instrument>;
+
+export const Leaderboard = __t.object("Leaderboard", {});
+export type Leaderboard = __Infer<typeof Leaderboard>;
+
+export const LeaderboardEntry = __t.object("LeaderboardEntry", {
+  identity: __t.identity(),
+  name: __t.string(),
+  netWorth: __t.u64(),
+  startingNetWorth: __t.u64(),
+});
+export type LeaderboardEntry = __Infer<typeof LeaderboardEntry>;
 
 export const MarketState = __t.object("MarketState", {
   symbol: __t.string(),

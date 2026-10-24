@@ -14,6 +14,8 @@ export const account = table(
     createdAt: t.timestamp(),
     /** Bot accounts are owned by the module and left off the leaderboard. */
     isBot: t.bool(),
+    /** Net worth at registration (cash plus shares at that moment's last prices), for return %. */
+    startingNetWorth: t.u64(),
   }
 );
 

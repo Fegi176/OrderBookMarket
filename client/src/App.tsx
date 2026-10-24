@@ -9,6 +9,15 @@ import PriceChart from './components/PriceChart';
 import OrderForm from './components/OrderForm';
 import MyOrders from './components/MyOrders';
 import NewsFeed from './components/NewsFeed';
+import Portfolio from './components/Portfolio';
+import Leaderboard from './components/Leaderboard';
+
+type Page = 'trade' | 'portfolio' | 'leaderboard';
+const PAGES: { id: Page; label: string }[] = [
+  { id: 'trade', label: 'Trade' },
+  { id: 'portfolio', label: 'Portfolio' },
+  { id: 'leaderboard', label: 'Leaderboard' },
+];
 
 export default function App() {
   const { isActive, identity, connectionError } = useSpacetimeDB();
@@ -16,6 +25,7 @@ export default function App() {
   const [accounts, accountReady] = useTable(tables.myAccount);
   const [holdings] = useTable(tables.myHoldings);
   const [selected, setSelected] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>('trade');
 
   const sorted = useMemo(
     () => [...instruments].sort((a, b) => a.symbol.localeCompare(b.symbol)),
@@ -33,11 +43,28 @@ export default function App() {
   if (!account) return <Register />;
 
   const holding = holdings.find(h => h.symbol === symbol);
+  const trade = (sym: string) => {
+    setSelected(sym);
+    setPage('trade');
+  };
 
   return (
     <div className="app">
       <header className="topbar">
         <h1>Order Book Market</h1>
+        <nav className="pages" aria-label="Pages">
+          {PAGES.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              className={page === p.id ? 'page active' : 'page'}
+              aria-current={page === p.id ? 'page' : undefined}
+              onClick={() => setPage(p.id)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </nav>
         <div className="balances">
           <span>
             <span className="muted">Player</span> {account.name}
@@ -53,60 +80,74 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="symbols" aria-label="Instruments">
-        {sorted.map(inst => (
-          <button
-            key={inst.symbol}
-            className={inst.symbol === symbol ? 'symbol active' : 'symbol'}
-            onClick={() => setSelected(inst.symbol)}
-            title={inst.name}
-          >
-            <span className="sym">{inst.symbol}</span>
-            <span className="px">{fmtPrice(inst.lastPrice)}</span>
-          </button>
-        ))}
-      </nav>
-
-      {symbol && (
-        <main className="trading">
-          <section className="panel chart-panel">
-            <h2>
-              {symbol}{' '}
-              <span className="muted">{sorted.find(i => i.symbol === symbol)?.name}</span>
-            </h2>
-            <PriceChart symbol={symbol} />
-          </section>
-          <section className="panel book-panel">
-            <h2>Order book</h2>
-            <OrderBook symbol={symbol} me={identity} />
-          </section>
-          <section className="panel form-panel">
-            <h2>Place order</h2>
-            <OrderForm
-              symbol={symbol}
-              tickSize={sorted.find(i => i.symbol === symbol)?.tickSize ?? 1n}
-              cash={account.cashAvailable}
-              shares={holding?.qtyAvailable ?? 0n}
-            />
-            <MyOrders symbol={symbol} me={identity} />
-          </section>
-          <section className="panel feed-panel">
-            <h2>Trades</h2>
-            <TradeFeed symbol={symbol} me={identity} />
-          </section>
-          <section className="panel news-panel">
-            <h2>News</h2>
-            <NewsFeed onSelect={setSelected} />
-          </section>
-        </main>
+      {page === 'portfolio' && (
+        <Portfolio
+          me={identity}
+          account={account}
+          holdings={holdings}
+          instruments={sorted}
+          onTrade={trade}
+        />
       )}
-      <footer className="muted small">
-        Holdings:{' '}
-        {[...holdings]
-          .sort((a, b) => a.symbol.localeCompare(b.symbol))
-          .map(h => `${h.symbol} ${h.qtyAvailable + h.qtyReserved}`)
-          .join(' · ')}
-      </footer>
+
+      {page === 'leaderboard' && (
+        <section className="panel leaderboard">
+          <h2>Leaderboard</h2>
+          <Leaderboard me={identity} />
+        </section>
+      )}
+
+      {page === 'trade' && (
+        <>
+          <nav className="symbols" aria-label="Instruments">
+            {sorted.map(inst => (
+              <button
+                key={inst.symbol}
+                className={inst.symbol === symbol ? 'symbol active' : 'symbol'}
+                onClick={() => setSelected(inst.symbol)}
+                title={inst.name}
+              >
+                <span className="sym">{inst.symbol}</span>
+                <span className="px">{fmtPrice(inst.lastPrice)}</span>
+              </button>
+            ))}
+          </nav>
+
+          {symbol && (
+            <main className="trading">
+              <section className="panel chart-panel">
+                <h2>
+                  {symbol}{' '}
+                  <span className="muted">{sorted.find(i => i.symbol === symbol)?.name}</span>
+                </h2>
+                <PriceChart symbol={symbol} />
+              </section>
+              <section className="panel book-panel">
+                <h2>Order book</h2>
+                <OrderBook symbol={symbol} me={identity} />
+              </section>
+              <section className="panel form-panel">
+                <h2>Place order</h2>
+                <OrderForm
+                  symbol={symbol}
+                  tickSize={sorted.find(i => i.symbol === symbol)?.tickSize ?? 1n}
+                  cash={account.cashAvailable}
+                  shares={holding?.qtyAvailable ?? 0n}
+                />
+                <MyOrders symbol={symbol} me={identity} />
+              </section>
+              <section className="panel feed-panel">
+                <h2>Trades</h2>
+                <TradeFeed symbol={symbol} me={identity} />
+              </section>
+              <section className="panel news-panel">
+                <h2>News</h2>
+                <NewsFeed onSelect={trade} />
+              </section>
+            </main>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -45,6 +45,7 @@ export function ensureBots(ctx: Ctx): void {
         cashReserved: 0n,
         createdAt: ctx.timestamp,
         isBot: true,
+        startingNetWorth: 0n,
       });
     } else if (acc.cashAvailable < BOT_CASH_FLOOR) {
       ctx.db.account.identity.update({ ...acc, cashAvailable: BOT_CASH });

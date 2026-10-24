@@ -104,6 +104,9 @@ export const register = spacetimedb.reducer({ name: t.string() }, (ctx, { name }
   }
   if (ctx.db.account.identity.find(ctx.sender)) throw new SenderError('Already registered');
 
+  let startingNetWorth = STARTING_CASH;
+  for (const inst of ctx.db.instrument.iter()) startingNetWorth += STARTING_SHARES * inst.lastPrice;
+
   ctx.db.account.insert({
     identity: ctx.sender,
     name: trimmed,
@@ -111,6 +114,7 @@ export const register = spacetimedb.reducer({ name: t.string() }, (ctx, { name }
     cashReserved: 0n,
     createdAt: ctx.timestamp,
     isBot: false,
+    startingNetWorth,
   });
   for (const inst of ctx.db.instrument.iter()) {
     const h = getOrCreateHolding(ctx, ctx.sender, inst.symbol);
@@ -150,4 +154,43 @@ export const my_holdings = spacetimedb.view(
   { name: 'my_holdings', public: true },
   t.array(holding.rowType),
   ctx => [...ctx.db.holding.byOwnerSymbol.filter(ctx.sender)]
+);
+
+// ---------------------------------------------------------------------------
+// Public leaderboard: names and net worth only, never balances or positions
+// ---------------------------------------------------------------------------
+
+const leaderboardEntry = t.row('LeaderboardEntry', {
+  identity: t.identity(),
+  name: t.string(),
+  /** Cash (available + reserved) plus all shares valued at each symbol's last trade price. */
+  netWorth: t.u64(),
+  startingNetWorth: t.u64(),
+});
+
+export const leaderboard = spacetimedb.anonymousView(
+  { name: 'leaderboard', public: true },
+  t.array(leaderboardEntry),
+  ctx => {
+    const lastPrice = new Map<string, bigint>();
+    for (const inst of ctx.db.instrument.iter()) lastPrice.set(inst.symbol, inst.lastPrice);
+
+    // One pass over holdings, keyed by identity hex, rather than a scan per player.
+    const sharesValue = new Map<string, bigint>();
+    for (const h of ctx.db.holding.iter()) {
+      const key = h.owner.toHexString();
+      const value = (h.qtyAvailable + h.qtyReserved) * (lastPrice.get(h.symbol) ?? 0n);
+      sharesValue.set(key, (sharesValue.get(key) ?? 0n) + value);
+    }
+
+    return [...ctx.db.account.iter()]
+      .filter(a => !a.isBot)
+      .map(a => ({
+        identity: a.identity,
+        name: a.name,
+        netWorth: a.cashAvailable + a.cashReserved + (sharesValue.get(a.identity.toHexString()) ?? 0n),
+        startingNetWorth: a.startingNetWorth,
+      }))
+      .sort((a, b) => (a.netWorth > b.netWorth ? -1 : a.netWorth < b.netWorth ? 1 : 0));
+  }
 );
