@@ -1,6 +1,7 @@
 import type { Identity } from 'spacetimedb';
 import { SenderError } from 'spacetimedb/server';
 import type { Ctx, Order } from './schema';
+import { recordTrade } from './candles';
 
 export type Side = 'buy' | 'sell';
 
@@ -98,6 +99,7 @@ function settle(ctx: Ctx, taker: Order, resting: Order, fill: bigint) {
     seller: sellOrder.owner,
     timestamp: ctx.timestamp,
   });
+  recordTrade(ctx, taker.symbol, price, fill);
 }
 
 /** Executes `fill` shares between taker and resting, updates the resting order, returns the new taker. */

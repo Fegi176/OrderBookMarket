@@ -1,5 +1,6 @@
-import { SenderError, t } from 'spacetimedb/server';
-import spacetimedb, { account, holding } from './schema';
+import { ScheduleAt, SenderError, t } from 'spacetimedb/server';
+import spacetimedb, { account, candleSchedule, holding } from './schema';
+import { CANDLE_INTERVAL_MICROS, rollCandles } from './candles';
 import {
   STARTING_CASH,
   STARTING_SHARES,
@@ -11,13 +12,14 @@ import {
 
 export default spacetimedb;
 
+// lastPrice is the listing price in cents, used until the first trade.
 const INSTRUMENTS = [
-  { symbol: 'BRKT', name: 'Bracket Robotics', tickSize: 1n },
-  { symbol: 'CLDN', name: 'Cloudnine Airlines', tickSize: 1n },
-  { symbol: 'GRVY', name: 'Gravy Foods', tickSize: 1n },
-  { symbol: 'MOON', name: 'Moonshot Mining', tickSize: 5n },
-  { symbol: 'PXL', name: 'Pixel Pictures', tickSize: 1n },
-  { symbol: 'QNTM', name: 'Quantum Quilts', tickSize: 5n },
+  { symbol: 'BRKT', name: 'Bracket Robotics', tickSize: 1n, lastPrice: 4_250n },
+  { symbol: 'CLDN', name: 'Cloudnine Airlines', tickSize: 1n, lastPrice: 1_875n },
+  { symbol: 'GRVY', name: 'Gravy Foods', tickSize: 1n, lastPrice: 3_310n },
+  { symbol: 'MOON', name: 'Moonshot Mining', tickSize: 5n, lastPrice: 12_000n },
+  { symbol: 'PXL', name: 'Pixel Pictures', tickSize: 1n, lastPrice: 960n },
+  { symbol: 'QNTM', name: 'Quantum Quilts', tickSize: 5n, lastPrice: 7_550n },
 ];
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,28 @@ export const init = spacetimedb.init(ctx => {
   for (const inst of INSTRUMENTS) {
     if (!ctx.db.instrument.symbol.find(inst.symbol)) ctx.db.instrument.insert(inst);
   }
+  if (ctx.db.candleSchedule.count() === 0n) {
+    ctx.db.candleSchedule.insert({
+      scheduledId: 0n,
+      scheduledAt: ScheduleAt.interval(CANDLE_INTERVAL_MICROS),
+    });
+  }
+  rollCandles(ctx);
 });
+
+// ---------------------------------------------------------------------------
+// Scheduled reducers
+// ---------------------------------------------------------------------------
+
+export const roll_candles = spacetimedb.reducer(
+  { onSchedule: candleSchedule },
+  { arg: candleSchedule.rowType },
+  ctx => {
+    // Scheduled reducers are still callable by clients, so only the module may run this.
+    if (!ctx.sender.isEqual(ctx.identity)) throw new SenderError('roll_candles is internal');
+    rollCandles(ctx);
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Player reducers

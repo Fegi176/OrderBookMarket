@@ -22,6 +22,8 @@ export const instrument = table(
     symbol: t.string().primaryKey(),
     name: t.string(),
     tickSize: t.u64(),
+    /** Last traded price, seeded with a listing price before the first trade. */
+    lastPrice: t.u64(),
   }
 );
 
@@ -97,6 +99,44 @@ export const trade = table(
   }
 );
 
+/**
+ * One-minute OHLCV bars for the price chart. Trades update the current bar as they
+ * happen; `roll_candles` opens a flat bar for every symbol at each minute boundary,
+ * so the chart has no gaps when nothing trades.
+ */
+export const candle = table(
+  {
+    public: true,
+    indexes: [
+      {
+        accessor: 'bySymbolStart',
+        algorithm: 'btree',
+        columns: ['symbol', 'intervalStart'] as const,
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    symbol: t.string().index('btree'),
+    /** Start of the bar, in microseconds since the Unix epoch. */
+    intervalStart: t.u64(),
+    open: t.u64(),
+    high: t.u64(),
+    low: t.u64(),
+    close: t.u64(),
+    volume: t.u64(),
+  }
+);
+
+/** Drives `roll_candles` once per candle interval. */
+export const candleSchedule = table(
+  { public: false },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  }
+);
+
 /** Named monotonic counters. `order_seq` gives time priority, since timestamps can tie. */
 export const counter = table(
   { public: false },
@@ -106,7 +146,16 @@ export const counter = table(
   }
 );
 
-const spacetimedb = schema({ account, instrument, holding, orders, trade, counter });
+const spacetimedb = schema({
+  account,
+  instrument,
+  holding,
+  orders,
+  trade,
+  candle,
+  candleSchedule,
+  counter,
+});
 export default spacetimedb;
 
 export type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
