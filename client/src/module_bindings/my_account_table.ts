@@ -16,4 +16,5 @@ export default __t.row({
   cashAvailable: __t.u64().name("cash_available"),
   cashReserved: __t.u64().name("cash_reserved"),
   createdAt: __t.timestamp().name("created_at"),
+  isBot: __t.bool().name("is_bot"),
 });

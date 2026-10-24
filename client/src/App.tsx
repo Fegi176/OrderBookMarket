@@ -8,6 +8,7 @@ import TradeFeed from './components/TradeFeed';
 import PriceChart from './components/PriceChart';
 import OrderForm from './components/OrderForm';
 import MyOrders from './components/MyOrders';
+import NewsFeed from './components/NewsFeed';
 
 export default function App() {
   const { isActive, identity, connectionError } = useSpacetimeDB();
@@ -92,6 +93,10 @@ export default function App() {
           <section className="panel feed-panel">
             <h2>Trades</h2>
             <TradeFeed symbol={symbol} me={identity} />
+          </section>
+          <section className="panel news-panel">
+            <h2>News</h2>
+            <NewsFeed onSelect={setSelected} />
           </section>
         </main>
       )}

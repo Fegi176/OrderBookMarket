@@ -122,9 +122,9 @@ function validateSideAndQty(ctx: Ctx, symbol: string, side: string, qty: bigint)
   return { side: side as Side, inst };
 }
 
-/** Moves `qty` shares of `symbol` from available to reserved for the sender. */
-function reserveShares(ctx: Ctx, symbol: string, qty: bigint) {
-  const h = findHolding(ctx, ctx.sender, symbol);
+/** Moves `qty` shares of `symbol` from available to reserved for `owner`. */
+function reserveShares(ctx: Ctx, owner: Identity, symbol: string, qty: bigint) {
+  const h = findHolding(ctx, owner, symbol);
   if (!h || h.qtyAvailable < qty) throw new SenderError('Insufficient shares');
   ctx.db.holding.id.update({
     ...h,
@@ -133,10 +133,10 @@ function reserveShares(ctx: Ctx, symbol: string, qty: bigint) {
   });
 }
 
-function insertOrder(ctx: Ctx, symbol: string, side: Side, price: bigint, qty: bigint): Order {
+function insertOrder(ctx: Ctx, owner: Identity, symbol: string, side: Side, price: bigint, qty: bigint): Order {
   return ctx.db.orders.insert({
     id: 0n,
-    owner: ctx.sender,
+    owner,
     symbol,
     side,
     price,
@@ -149,11 +149,13 @@ function insertOrder(ctx: Ctx, symbol: string, side: Side, price: bigint, qty: b
 }
 
 /**
- * Validates, reserves, matches and rests a limit order. Runs inside one reducer,
+ * Validates, reserves, matches and rests a limit order for `owner` (the caller, or a bot).
+ * Runs inside one reducer,
  * so the whole thing is a single transaction: a thrown error rolls everything back.
  */
 export function placeLimitOrder(
   ctx: Ctx,
+  owner: Identity,
   symbol: string,
   side: string,
   price: bigint,
@@ -166,7 +168,7 @@ export function placeLimitOrder(
     throw new SenderError(`price must be a multiple of the tick size (${inst.tickSize})`);
   }
 
-  const acc = requireAccount(ctx, ctx.sender);
+  const acc = requireAccount(ctx, owner);
   if (side === 'buy') {
     const cost = price * qty;
     if (acc.cashAvailable < cost) throw new SenderError('Insufficient cash');
@@ -176,16 +178,16 @@ export function placeLimitOrder(
       cashReserved: acc.cashReserved + cost,
     });
   } else {
-    reserveShares(ctx, symbol, qty);
+    reserveShares(ctx, owner, symbol, qty);
   }
 
-  let taker = insertOrder(ctx, symbol, side as Side, price, qty);
+  let taker = insertOrder(ctx, owner, symbol, side as Side, price, qty);
 
   // 2-4. Walk the opposite side until filled or the book no longer crosses.
   for (const resting of crossingOrders(ctx, symbol, taker.side as Side, price)) {
     if (taker.remaining === 0n) break;
     // 6. Self-trade prevention: skip our own resting orders.
-    if (resting.owner.isEqual(ctx.sender)) continue;
+    if (resting.owner.isEqual(owner)) continue;
     taker = fillAgainst(ctx, taker, resting, min(taker.remaining, resting.remaining));
   }
 
@@ -202,21 +204,21 @@ export function placeLimitOrder(
  * Buys stop when the next fill is unaffordable; sells reserve all shares up front.
  * Fails, rolling everything back, if nothing at all could be filled.
  */
-export function placeMarketOrder(ctx: Ctx, symbol: string, side: string, qty: bigint): Order {
+export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side: string, qty: bigint): Order {
   validateSideAndQty(ctx, symbol, side, qty);
-  requireAccount(ctx, ctx.sender);
-  if (side === 'sell') reserveShares(ctx, symbol, qty);
+  requireAccount(ctx, owner);
+  if (side === 'sell') reserveShares(ctx, owner, symbol, qty);
 
-  let taker = insertOrder(ctx, symbol, side as Side, 0n, qty);
+  let taker = insertOrder(ctx, owner, symbol, side as Side, 0n, qty);
 
   for (const resting of crossingOrders(ctx, symbol, taker.side as Side, null)) {
     if (taker.remaining === 0n) break;
-    if (resting.owner.isEqual(ctx.sender)) continue;
+    if (resting.owner.isEqual(owner)) continue;
 
     let fill = min(taker.remaining, resting.remaining);
     if (taker.side === 'buy') {
       // Reserve exactly this fill's cost, then settle as if the limit were the resting price.
-      const acc = requireAccount(ctx, ctx.sender);
+      const acc = requireAccount(ctx, owner);
       fill = min(fill, acc.cashAvailable / resting.price);
       if (fill === 0n) break; // asks only get pricier from here
       const cost = resting.price * fill;
@@ -236,7 +238,7 @@ export function placeMarketOrder(ctx: Ctx, symbol: string, side: string, qty: bi
 
   if (taker.side === 'sell' && taker.remaining > 0n) {
     // Release the shares that found no buyer.
-    const h = getOrCreateHolding(ctx, ctx.sender, symbol);
+    const h = getOrCreateHolding(ctx, owner, symbol);
     ctx.db.holding.id.update({
       ...h,
       qtyReserved: h.qtyReserved - taker.remaining,
@@ -251,10 +253,10 @@ export function placeMarketOrder(ctx: Ctx, symbol: string, side: string, qty: bi
 }
 
 /** Cancels an open order (owner only) and releases what it still has reserved. */
-export function cancelOrder(ctx: Ctx, orderId: bigint): void {
+export function cancelOrder(ctx: Ctx, owner: Identity, orderId: bigint): void {
   const order = ctx.db.orders.id.find(orderId);
   if (!order) throw new SenderError('No such order');
-  if (!order.owner.isEqual(ctx.sender)) throw new SenderError('Not your order');
+  if (!order.owner.isEqual(owner)) throw new SenderError('Not your order');
   if (order.status !== 'open') throw new SenderError(`Order is already ${order.status}`);
 
   if (order.side === 'buy') {

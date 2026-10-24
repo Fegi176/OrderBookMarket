@@ -46,6 +46,7 @@ import CandleRow from "./candle_table";
 import InstrumentRow from "./instrument_table";
 import MyAccountRow from "./my_account_table";
 import MyHoldingsRow from "./my_holdings_table";
+import NewsRow from "./news_table";
 import OrdersRow from "./orders_table";
 import TradeRow from "./trade_table";
 
@@ -82,6 +83,20 @@ const tablesSchema = __schema({
       { name: 'instrument_symbol_key', constraint: 'unique', columns: ['symbol'] },
     ],
   }, InstrumentRow),
+  news: __table({
+    name: 'news',
+    indexes: [
+      { accessor: 'id', name: 'news_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'symbol', name: 'news_symbol_idx_btree', algorithm: 'btree', columns: [
+        'symbol',
+      ] },
+    ],
+    constraints: [
+      { name: 'news_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, NewsRow),
   orders: __table({
     name: 'orders',
     indexes: [

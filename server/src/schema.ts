@@ -12,6 +12,8 @@ export const account = table(
     cashAvailable: t.u64(),
     cashReserved: t.u64(),
     createdAt: t.timestamp(),
+    /** Bot accounts are owned by the module and left off the leaderboard. */
+    isBot: t.bool(),
   }
 );
 
@@ -137,6 +139,50 @@ export const candleSchedule = table(
   }
 );
 
+/**
+ * Hidden "true value" per symbol. News moves it; the market-maker bot quotes around a
+ * point drifting from the last price toward it, so prices react gradually. Private so
+ * players have to read the news rather than the table.
+ */
+export const marketState = table(
+  { public: false },
+  {
+    symbol: t.string().primaryKey(),
+    fairValue: t.u64(),
+  }
+);
+
+/** Market events shown to every player. */
+export const news = table(
+  { public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    symbol: t.string().index('btree'),
+    headline: t.string(),
+    /** Change applied to fair value, in basis points (+250 = +2.5%). */
+    impactBps: t.i32(),
+    timestamp: t.timestamp(),
+  }
+);
+
+/** Drives `run_bots` on a fixed interval. */
+export const botSchedule = table(
+  { public: false },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  }
+);
+
+/** Holds the next `fire_news_event`; each event schedules the one after it at a random time. */
+export const newsSchedule = table(
+  { public: false },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  }
+);
+
 /** Named monotonic counters. `order_seq` gives time priority, since timestamps can tie. */
 export const counter = table(
   { public: false },
@@ -154,6 +200,10 @@ const spacetimedb = schema({
   trade,
   candle,
   candleSchedule,
+  marketState,
+  news,
+  botSchedule,
+  newsSchedule,
   counter,
 });
 export default spacetimedb;

@@ -1,6 +1,15 @@
 import { ScheduleAt, SenderError, t } from 'spacetimedb/server';
-import spacetimedb, { account, candleSchedule, holding } from './schema';
+import spacetimedb, {
+  account,
+  botSchedule,
+  candleSchedule,
+  holding,
+  newsSchedule,
+  type Ctx,
+} from './schema';
 import { CANDLE_INTERVAL_MICROS, rollCandles } from './candles';
+import { BOT_TICK_MICROS, ensureBots, runBots } from './bots';
+import { fireNews, scheduleNextNews } from './news';
 import {
   STARTING_CASH,
   STARTING_SHARES,
@@ -29,6 +38,9 @@ const INSTRUMENTS = [
 export const init = spacetimedb.init(ctx => {
   for (const inst of INSTRUMENTS) {
     if (!ctx.db.instrument.symbol.find(inst.symbol)) ctx.db.instrument.insert(inst);
+    if (!ctx.db.marketState.symbol.find(inst.symbol)) {
+      ctx.db.marketState.insert({ symbol: inst.symbol, fairValue: inst.lastPrice });
+    }
   }
   if (ctx.db.candleSchedule.count() === 0n) {
     ctx.db.candleSchedule.insert({
@@ -36,6 +48,11 @@ export const init = spacetimedb.init(ctx => {
       scheduledAt: ScheduleAt.interval(CANDLE_INTERVAL_MICROS),
     });
   }
+  if (ctx.db.botSchedule.count() === 0n) {
+    ctx.db.botSchedule.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.interval(BOT_TICK_MICROS) });
+  }
+  if (ctx.db.newsSchedule.count() === 0n) scheduleNextNews(ctx);
+  ensureBots(ctx);
   rollCandles(ctx);
 });
 
@@ -43,13 +60,36 @@ export const init = spacetimedb.init(ctx => {
 // Scheduled reducers
 // ---------------------------------------------------------------------------
 
+/** Scheduled reducers are still callable by clients, so only the module may run them. */
+function requireModule(ctx: Ctx, name: string) {
+  if (!ctx.sender.isEqual(ctx.identity)) throw new SenderError(`${name} is internal`);
+}
+
 export const roll_candles = spacetimedb.reducer(
   { onSchedule: candleSchedule },
   { arg: candleSchedule.rowType },
   ctx => {
-    // Scheduled reducers are still callable by clients, so only the module may run this.
-    if (!ctx.sender.isEqual(ctx.identity)) throw new SenderError('roll_candles is internal');
+    requireModule(ctx, 'roll_candles');
     rollCandles(ctx);
+  }
+);
+
+export const run_bots = spacetimedb.reducer(
+  { onSchedule: botSchedule },
+  { arg: botSchedule.rowType },
+  ctx => {
+    requireModule(ctx, 'run_bots');
+    runBots(ctx);
+  }
+);
+
+export const fire_news_event = spacetimedb.reducer(
+  { onSchedule: newsSchedule },
+  { arg: newsSchedule.rowType },
+  ctx => {
+    requireModule(ctx, 'fire_news_event');
+    fireNews(ctx);
+    scheduleNextNews(ctx);
   }
 );
 
@@ -70,6 +110,7 @@ export const register = spacetimedb.reducer({ name: t.string() }, (ctx, { name }
     cashAvailable: STARTING_CASH,
     cashReserved: 0n,
     createdAt: ctx.timestamp,
+    isBot: false,
   });
   for (const inst of ctx.db.instrument.iter()) {
     const h = getOrCreateHolding(ctx, ctx.sender, inst.symbol);
@@ -80,19 +121,19 @@ export const register = spacetimedb.reducer({ name: t.string() }, (ctx, { name }
 export const place_limit_order = spacetimedb.reducer(
   { symbol: t.string(), side: t.string(), price: t.u64(), qty: t.u64() },
   (ctx, { symbol, side, price, qty }) => {
-    placeLimitOrder(ctx, symbol, side, price, qty);
+    placeLimitOrder(ctx, ctx.sender, symbol, side, price, qty);
   }
 );
 
 export const place_market_order = spacetimedb.reducer(
   { symbol: t.string(), side: t.string(), qty: t.u64() },
   (ctx, { symbol, side, qty }) => {
-    placeMarketOrder(ctx, symbol, side, qty);
+    placeMarketOrder(ctx, ctx.sender, symbol, side, qty);
   }
 );
 
-export const cancel_order =spacetimedb.reducer({ orderId: t.u64() }, (ctx, { orderId }) => {
-  cancelOrder(ctx, orderId);
+export const cancel_order = spacetimedb.reducer({ orderId: t.u64() }, (ctx, { orderId }) => {
+  cancelOrder(ctx, ctx.sender, orderId);
 });
 
 // ---------------------------------------------------------------------------

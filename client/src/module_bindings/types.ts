@@ -16,8 +16,15 @@ export const Account = __t.object("Account", {
   cashAvailable: __t.u64(),
   cashReserved: __t.u64(),
   createdAt: __t.timestamp(),
+  isBot: __t.bool(),
 });
 export type Account = __Infer<typeof Account>;
+
+export const BotSchedule = __t.object("BotSchedule", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type BotSchedule = __Infer<typeof BotSchedule>;
 
 export const Candle = __t.object("Candle", {
   id: __t.u64(),
@@ -60,11 +67,32 @@ export const Instrument = __t.object("Instrument", {
 });
 export type Instrument = __Infer<typeof Instrument>;
 
+export const MarketState = __t.object("MarketState", {
+  symbol: __t.string(),
+  fairValue: __t.u64(),
+});
+export type MarketState = __Infer<typeof MarketState>;
+
 export const MyAccount = __t.object("MyAccount", {});
 export type MyAccount = __Infer<typeof MyAccount>;
 
 export const MyHoldings = __t.object("MyHoldings", {});
 export type MyHoldings = __Infer<typeof MyHoldings>;
+
+export const News = __t.object("News", {
+  id: __t.u64(),
+  symbol: __t.string(),
+  headline: __t.string(),
+  impactBps: __t.i32(),
+  timestamp: __t.timestamp(),
+});
+export type News = __Infer<typeof News>;
+
+export const NewsSchedule = __t.object("NewsSchedule", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type NewsSchedule = __Infer<typeof NewsSchedule>;
 
 export const Orders = __t.object("Orders", {
   id: __t.u64(),
