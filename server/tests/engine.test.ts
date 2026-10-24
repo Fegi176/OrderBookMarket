@@ -29,6 +29,10 @@ function limit(auth: TestAuth, symbol: string, side: string, price: bigint, qty:
   h.withReducerTx(auth, ctx => mod.place_limit_order(ctx, { symbol, side, price, qty }));
 }
 
+function market(auth: TestAuth, symbol: string, side: string, qty: bigint) {
+  h.withReducerTx(auth, ctx => mod.place_market_order(ctx, { symbol, side, qty }));
+}
+
 function cancel(auth: TestAuth, orderId: bigint) {
   h.withReducerTx(auth, ctx => mod.cancel_order(ctx, { orderId }));
 }
@@ -146,6 +150,53 @@ describe('limit orders', () => {
   });
 });
 
+describe('market orders', () => {
+  it('sweeps several price levels at the resting prices', () => {
+    limit(bob, 'BRKT', 'sell', 1000n, 5n);
+    limit(carol, 'BRKT', 'sell', 1010n, 5n);
+    market(alice, 'BRKT', 'buy', 8n);
+
+    const trades = [...h.db.trade.iter()].map(t => [t.price, t.qty]);
+    expect(trades).toEqual([
+      [1000n, 5n],
+      [1010n, 3n],
+    ]);
+    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 5n * 1000n - 3n * 1010n);
+    expect(acct(A).cashReserved).toBe(0n);
+    expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES + 8n);
+  });
+
+  it('never rests: the unfilled part is cancelled and shares are released', () => {
+    limit(bob, 'BRKT', 'buy', 1000n, 3n);
+    market(alice, 'BRKT', 'sell', 10n);
+
+    const mkt = [...h.db.orders.iter()].find(o => o.owner.isEqual(A))!;
+    expect(mkt.status).toBe('cancelled');
+    expect(mkt.remaining).toBe(7n);
+    expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES - 3n);
+    expect(shares(A, 'BRKT').qtyReserved).toBe(0n);
+    expect(openOrders('BRKT')).toHaveLength(0);
+  });
+
+  it('stops buying when cash runs out', () => {
+    const price = 1_000_000n; // $10,000 a share, so starting cash buys 10
+    limit(bob, 'BRKT', 'sell', price, 15n);
+    market(alice, 'BRKT', 'buy', 15n);
+
+    expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES + 10n);
+    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 10n * price);
+    expect(acct(A).cashReserved).toBe(0n);
+  });
+
+  it('fails and rolls back when nothing can fill', () => {
+    limit(alice, 'BRKT', 'sell', 1000n, 5n); // own order only: skipped
+    expect(() => market(alice, 'BRKT', 'buy', 5n)).toThrow(/No matching orders/);
+    expect(() => market(bob, 'GRVY', 'sell', 5n)).toThrow(/No matching orders/);
+    expect(shares(B, 'GRVY').qtyReserved).toBe(0n);
+    expect(h.db.orders.count()).toBe(1n);
+  });
+});
+
 describe('cancel_order', () => {
   it('releases the reservation; only the owner may cancel', () => {
     limit(alice, 'BRKT', 'buy', 1000n, 10n);
@@ -196,8 +247,10 @@ describe('invariants', () => {
         continue;
       }
       const price = BigInt(950 + rand(20) * 5);
+      const [symbol, side, qty] = [symbols[rand(2)], rand(2) ? 'buy' : 'sell', BigInt(1 + rand(20))];
       try {
-        limit(who, symbols[rand(2)], rand(2) ? 'buy' : 'sell', price, BigInt(1 + rand(20)));
+        if (rand(5) === 0) market(who, symbol, side, qty);
+        else limit(who, symbol, side, price, qty);
       } catch {}
     }
 

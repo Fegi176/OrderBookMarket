@@ -46,11 +46,12 @@ const min = (a: bigint, b: bigint) => (a < b ? a : b);
 
 /**
  * Resting orders on the opposite side that cross `price`, in price-time priority:
- * best price first, then lowest sequence number.
+ * best price first, then lowest sequence number. A `null` price (market order) crosses everything.
  */
-function crossingOrders(ctx: Ctx, symbol: string, takerSide: Side, price: bigint): Order[] {
+function crossingOrders(ctx: Ctx, symbol: string, takerSide: Side, price: bigint | null): Order[] {
   const restingSide: Side = takerSide === 'buy' ? 'sell' : 'buy';
-  const crosses = (o: Order) => (takerSide === 'buy' ? o.price <= price : o.price >= price);
+  const crosses = (o: Order) =>
+    price === null || (takerSide === 'buy' ? o.price <= price : o.price >= price);
   const rows = [...ctx.db.orders.book.filter([symbol, restingSide, 'open'])].filter(crosses);
   rows.sort((a, b) => {
     if (a.price !== b.price) {
@@ -99,6 +100,52 @@ function settle(ctx: Ctx, taker: Order, resting: Order, fill: bigint) {
   });
 }
 
+/** Executes `fill` shares between taker and resting, updates the resting order, returns the new taker. */
+function fillAgainst(ctx: Ctx, taker: Order, resting: Order, fill: bigint): Order {
+  settle(ctx, taker, resting, fill);
+  const restingLeft = resting.remaining - fill;
+  ctx.db.orders.id.update({
+    ...resting,
+    remaining: restingLeft,
+    status: restingLeft === 0n ? 'filled' : 'open',
+  });
+  return { ...taker, remaining: taker.remaining - fill };
+}
+
+function validateSideAndQty(ctx: Ctx, symbol: string, side: string, qty: bigint) {
+  if (side !== 'buy' && side !== 'sell') throw new SenderError("side must be 'buy' or 'sell'");
+  const inst = ctx.db.instrument.symbol.find(symbol);
+  if (!inst) throw new SenderError(`Unknown symbol ${symbol}`);
+  if (qty <= 0n) throw new SenderError('qty must be positive');
+  return { side: side as Side, inst };
+}
+
+/** Moves `qty` shares of `symbol` from available to reserved for the sender. */
+function reserveShares(ctx: Ctx, symbol: string, qty: bigint) {
+  const h = findHolding(ctx, ctx.sender, symbol);
+  if (!h || h.qtyAvailable < qty) throw new SenderError('Insufficient shares');
+  ctx.db.holding.id.update({
+    ...h,
+    qtyAvailable: h.qtyAvailable - qty,
+    qtyReserved: h.qtyReserved + qty,
+  });
+}
+
+function insertOrder(ctx: Ctx, symbol: string, side: Side, price: bigint, qty: bigint): Order {
+  return ctx.db.orders.insert({
+    id: 0n,
+    owner: ctx.sender,
+    symbol,
+    side,
+    price,
+    qty,
+    remaining: qty,
+    seq: nextSeq(ctx, 'order_seq'),
+    status: 'open',
+    createdAt: ctx.timestamp,
+  });
+}
+
 /**
  * Validates, reserves, matches and rests a limit order. Runs inside one reducer,
  * so the whole thing is a single transaction: a thrown error rolls everything back.
@@ -111,10 +158,7 @@ export function placeLimitOrder(
   qty: bigint
 ): Order {
   // 1. Validate and reserve.
-  if (side !== 'buy' && side !== 'sell') throw new SenderError("side must be 'buy' or 'sell'");
-  const inst = ctx.db.instrument.symbol.find(symbol);
-  if (!inst) throw new SenderError(`Unknown symbol ${symbol}`);
-  if (qty <= 0n) throw new SenderError('qty must be positive');
+  const { inst } = validateSideAndQty(ctx, symbol, side, qty);
   if (price <= 0n) throw new SenderError('price must be positive');
   if (price % inst.tickSize !== 0n) {
     throw new SenderError(`price must be a multiple of the tick size (${inst.tickSize})`);
@@ -130,50 +174,77 @@ export function placeLimitOrder(
       cashReserved: acc.cashReserved + cost,
     });
   } else {
-    const h = findHolding(ctx, ctx.sender, symbol);
-    if (!h || h.qtyAvailable < qty) throw new SenderError('Insufficient shares');
-    ctx.db.holding.id.update({
-      ...h,
-      qtyAvailable: h.qtyAvailable - qty,
-      qtyReserved: h.qtyReserved + qty,
-    });
+    reserveShares(ctx, symbol, qty);
   }
 
-  let taker = ctx.db.orders.insert({
-    id: 0n,
-    owner: ctx.sender,
-    symbol,
-    side,
-    price,
-    qty,
-    remaining: qty,
-    seq: nextSeq(ctx, 'order_seq'),
-    status: 'open',
-    createdAt: ctx.timestamp,
-  });
+  let taker = insertOrder(ctx, symbol, side as Side, price, qty);
 
   // 2-4. Walk the opposite side until filled or the book no longer crosses.
-  for (const resting of crossingOrders(ctx, symbol, side, price)) {
+  for (const resting of crossingOrders(ctx, symbol, taker.side as Side, price)) {
     if (taker.remaining === 0n) break;
     // 6. Self-trade prevention: skip our own resting orders.
     if (resting.owner.isEqual(ctx.sender)) continue;
-
-    const fill = min(taker.remaining, resting.remaining);
-    settle(ctx, taker, resting, fill);
-
-    const restingLeft = resting.remaining - fill;
-    ctx.db.orders.id.update({
-      ...resting,
-      remaining: restingLeft,
-      status: restingLeft === 0n ? 'filled' : 'open',
-    });
-    taker = { ...taker, remaining: taker.remaining - fill };
+    taker = fillAgainst(ctx, taker, resting, min(taker.remaining, resting.remaining));
   }
 
   // 5. Whatever is left stays on the book.
   return ctx.db.orders.id.update({
     ...taker,
     status: taker.remaining === 0n ? 'filled' : 'open',
+  });
+}
+
+/**
+ * Fills as much as possible against the book right now, then cancels the rest
+ * (immediate-or-cancel). Market orders never rest, so they are stored with price 0.
+ * Buys stop when the next fill is unaffordable; sells reserve all shares up front.
+ * Fails, rolling everything back, if nothing at all could be filled.
+ */
+export function placeMarketOrder(ctx: Ctx, symbol: string, side: string, qty: bigint): Order {
+  validateSideAndQty(ctx, symbol, side, qty);
+  requireAccount(ctx, ctx.sender);
+  if (side === 'sell') reserveShares(ctx, symbol, qty);
+
+  let taker = insertOrder(ctx, symbol, side as Side, 0n, qty);
+
+  for (const resting of crossingOrders(ctx, symbol, taker.side as Side, null)) {
+    if (taker.remaining === 0n) break;
+    if (resting.owner.isEqual(ctx.sender)) continue;
+
+    let fill = min(taker.remaining, resting.remaining);
+    if (taker.side === 'buy') {
+      // Reserve exactly this fill's cost, then settle as if the limit were the resting price.
+      const acc = requireAccount(ctx, ctx.sender);
+      fill = min(fill, acc.cashAvailable / resting.price);
+      if (fill === 0n) break; // asks only get pricier from here
+      const cost = resting.price * fill;
+      ctx.db.account.identity.update({
+        ...acc,
+        cashAvailable: acc.cashAvailable - cost,
+        cashReserved: acc.cashReserved + cost,
+      });
+      taker = fillAgainst(ctx, { ...taker, price: resting.price }, resting, fill);
+      taker = { ...taker, price: 0n };
+    } else {
+      taker = fillAgainst(ctx, taker, resting, fill);
+    }
+  }
+
+  if (taker.remaining === taker.qty) throw new SenderError('No matching orders on the book');
+
+  if (taker.side === 'sell' && taker.remaining > 0n) {
+    // Release the shares that found no buyer.
+    const h = getOrCreateHolding(ctx, ctx.sender, symbol);
+    ctx.db.holding.id.update({
+      ...h,
+      qtyReserved: h.qtyReserved - taker.remaining,
+      qtyAvailable: h.qtyAvailable + taker.remaining,
+    });
+  }
+
+  return ctx.db.orders.id.update({
+    ...taker,
+    status: taker.remaining === 0n ? 'filled' : 'cancelled',
   });
 }
 

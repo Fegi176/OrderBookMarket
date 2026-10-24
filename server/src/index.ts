@@ -6,6 +6,7 @@ import {
   cancelOrder,
   getOrCreateHolding,
   placeLimitOrder,
+  placeMarketOrder,
 } from './engine';
 
 export default spacetimedb;
@@ -60,7 +61,14 @@ export const place_limit_order = spacetimedb.reducer(
   }
 );
 
-export const cancel_order = spacetimedb.reducer({ orderId: t.u64() }, (ctx, { orderId }) => {
+export const place_market_order = spacetimedb.reducer(
+  { symbol: t.string(), side: t.string(), qty: t.u64() },
+  (ctx, { symbol, side, qty }) => {
+    placeMarketOrder(ctx, symbol, side, qty);
+  }
+);
+
+export const cancel_order =spacetimedb.reducer({ orderId: t.u64() }, (ctx, { orderId }) => {
   cancelOrder(ctx, orderId);
 });
 

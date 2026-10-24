@@ -7,8 +7,9 @@ A fictional stock exchange game on SpacetimeDB with a real price-time-priority o
 ```
 server/            SpacetimeDB module (TypeScript)
   src/schema.ts    tables, indexes and the schema object
-  src/engine.ts    matching engine, reservations, cancel
-  src/index.ts     reducers (init, register, place_limit_order, cancel_order) and private views
+  src/engine.ts    matching engine, reservations, market orders, cancel
+  src/index.ts     reducers (init, register, place_limit_order, place_market_order,
+                   cancel_order) and private views
   tests/           engine tests run against the SDK's in-process test datastore
 ```
 
@@ -38,6 +39,7 @@ spacetime generate --lang typescript --out-dir client/src/module_bindings --proj
 - Money is integer cents and quantities are whole shares, all `u64` (`bigint` in TS).
 - Time priority uses a private `order_seq` counter, not timestamps.
 - Placing an order reserves cash (buys, at the limit price) or shares (sells). Fills settle at the resting order's price and refund any price improvement to the buyer.
+- Market orders are immediate-or-cancel: they fill what they can and the rest is cancelled, never rested. Buys stop when the next share is unaffordable. A market order that fills nothing is rejected.
 - Self-trades are skipped: your own resting orders are passed over and stay on the book.
 - `account` and `holding` are private tables. Clients read their own rows through the `my_account` and `my_holdings` views.
 - Filled and cancelled orders stay in `orders` with their status, so order history is already there.
@@ -45,6 +47,5 @@ spacetime generate --lang typescript --out-dir client/src/module_bindings --proj
 ## Status
 
 - [x] Step 1: accounts, instruments, limit orders, matching engine
-- [x] Part of step 2: cancel and the conservation (invariants) test
-- [ ] Step 2: market orders
+- [x] Step 2: cancel, market orders and the conservation (invariants) test
 - [ ] Steps 3-6: candles, trade feed, client UI, bots, news, leaderboard
