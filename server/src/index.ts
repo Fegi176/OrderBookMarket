@@ -5,9 +5,12 @@ import spacetimedb, {
   candleSchedule,
   holding,
   newsSchedule,
+  seasonSchedule,
   stopOrder,
   type Ctx,
 } from './schema';
+import { activeSeason, endSeason, startSeason } from './seasons';
+import { computeStandings } from './standings';
 import { cancelStopOrder, placeStopOrder, triggerStops } from './stops';
 import { CANDLE_INTERVAL_MICROS, rollCandles } from './candles';
 import { BOT_TICK_MICROS, ensureBots, runBots } from './bots';
@@ -24,14 +27,14 @@ import {
 
 export default spacetimedb;
 
-// lastPrice is the listing price in cents, used until the first trade.
+// Listing prices in cents: every season starts trading from these.
 const INSTRUMENTS = [
-  { symbol: 'BRKT', name: 'Bracket Robotics', tickSize: 1n, lastPrice: 4_250n },
-  { symbol: 'CLDN', name: 'Cloudnine Airlines', tickSize: 1n, lastPrice: 1_875n },
-  { symbol: 'GRVY', name: 'Gravy Foods', tickSize: 1n, lastPrice: 3_310n },
-  { symbol: 'MOON', name: 'Moonshot Mining', tickSize: 5n, lastPrice: 12_000n },
-  { symbol: 'PXL', name: 'Pixel Pictures', tickSize: 1n, lastPrice: 960n },
-  { symbol: 'QNTM', name: 'Quantum Quilts', tickSize: 5n, lastPrice: 7_550n },
+  { symbol: 'BRKT', name: 'Bracket Robotics', tickSize: 1n, listingPrice: 4_250n },
+  { symbol: 'CLDN', name: 'Cloudnine Airlines', tickSize: 1n, listingPrice: 1_875n },
+  { symbol: 'GRVY', name: 'Gravy Foods', tickSize: 1n, listingPrice: 3_310n },
+  { symbol: 'MOON', name: 'Moonshot Mining', tickSize: 5n, listingPrice: 12_000n },
+  { symbol: 'PXL', name: 'Pixel Pictures', tickSize: 1n, listingPrice: 960n },
+  { symbol: 'QNTM', name: 'Quantum Quilts', tickSize: 5n, listingPrice: 7_550n },
 ];
 
 // ---------------------------------------------------------------------------
@@ -40,11 +43,14 @@ const INSTRUMENTS = [
 
 export const init = spacetimedb.init(ctx => {
   for (const inst of INSTRUMENTS) {
-    if (!ctx.db.instrument.symbol.find(inst.symbol)) ctx.db.instrument.insert(inst);
+    if (!ctx.db.instrument.symbol.find(inst.symbol)) {
+      ctx.db.instrument.insert({ ...inst, lastPrice: inst.listingPrice });
+    }
     if (!ctx.db.marketState.symbol.find(inst.symbol)) {
-      ctx.db.marketState.insert({ symbol: inst.symbol, fairValue: inst.lastPrice });
+      ctx.db.marketState.insert({ symbol: inst.symbol, fairValue: inst.listingPrice });
     }
   }
+  if (!activeSeason(ctx)) startSeason(ctx, 1);
   if (ctx.db.candleSchedule.count() === 0n) {
     ctx.db.candleSchedule.insert({
       scheduledId: 0n,
@@ -94,6 +100,15 @@ export const fire_news_event = spacetimedb.reducer(
     requireModule(ctx, 'fire_news_event');
     fireNews(ctx);
     scheduleNextNews(ctx);
+  }
+);
+
+export const end_season = spacetimedb.reducer(
+  { onSchedule: seasonSchedule },
+  { arg: seasonSchedule.rowType },
+  ctx => {
+    requireModule(ctx, 'end_season');
+    endSeason(ctx);
   }
 );
 
@@ -196,26 +211,5 @@ const leaderboardEntry = t.row('LeaderboardEntry', {
 export const leaderboard = spacetimedb.anonymousView(
   { name: 'leaderboard', public: true },
   t.array(leaderboardEntry),
-  ctx => {
-    const lastPrice = new Map<string, bigint>();
-    for (const inst of ctx.db.instrument.iter()) lastPrice.set(inst.symbol, inst.lastPrice);
-
-    // One pass over holdings, keyed by identity hex, rather than a scan per player.
-    const sharesValue = new Map<string, bigint>();
-    for (const h of ctx.db.holding.iter()) {
-      const key = h.owner.toHexString();
-      const value = (h.qtyAvailable + h.qtyReserved) * (lastPrice.get(h.symbol) ?? 0n);
-      sharesValue.set(key, (sharesValue.get(key) ?? 0n) + value);
-    }
-
-    return [...ctx.db.account.iter()]
-      .filter(a => !a.isBot)
-      .map(a => ({
-        identity: a.identity,
-        name: a.name,
-        netWorth: a.cashAvailable + a.cashReserved + (sharesValue.get(a.identity.toHexString()) ?? 0n),
-        startingNetWorth: a.startingNetWorth,
-      }))
-      .sort((a, b) => (a.netWorth > b.netWorth ? -1 : a.netWorth < b.netWorth ? 1 : 0));
-  }
+  ctx => computeStandings(ctx.db)
 );

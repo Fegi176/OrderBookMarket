@@ -65,6 +65,7 @@ export const Instrument = __t.object("Instrument", {
   name: __t.string(),
   tickSize: __t.u64(),
   lastPrice: __t.u64(),
+  listingPrice: __t.u64(),
 });
 export type Instrument = __Infer<typeof Instrument>;
 
@@ -123,6 +124,31 @@ export const Orders = __t.object("Orders", {
   feePaid: __t.u64(),
 });
 export type Orders = __Infer<typeof Orders>;
+
+export const Season = __t.object("Season", {
+  number: __t.u32(),
+  startsAt: __t.timestamp(),
+  endsAt: __t.timestamp(),
+  status: __t.string(),
+});
+export type Season = __Infer<typeof Season>;
+
+export const SeasonResult = __t.object("SeasonResult", {
+  id: __t.u64(),
+  seasonNumber: __t.u32(),
+  rank: __t.u32(),
+  identity: __t.identity(),
+  name: __t.string(),
+  netWorth: __t.u64(),
+  startingNetWorth: __t.u64(),
+});
+export type SeasonResult = __Infer<typeof SeasonResult>;
+
+export const SeasonSchedule = __t.object("SeasonSchedule", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+});
+export type SeasonSchedule = __Infer<typeof SeasonSchedule>;
 
 export const StopOrder = __t.object("StopOrder", {
   id: __t.u64(),

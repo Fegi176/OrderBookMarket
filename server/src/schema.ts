@@ -26,8 +26,10 @@ export const instrument = table(
     symbol: t.string().primaryKey(),
     name: t.string(),
     tickSize: t.u64(),
-    /** Last traded price, seeded with a listing price before the first trade. */
+    /** Last traded price, seeded with the listing price before the first trade. */
     lastPrice: t.u64(),
+    /** Price every season starts from. */
+    listingPrice: t.u64(),
   }
 );
 
@@ -225,6 +227,44 @@ export const newsSchedule = table(
   }
 );
 
+/**
+ * Time-boxed rounds. Exactly one season is 'active'; when it ends, standings are saved
+ * to `season_result` and every account, book and price is reset for the next one.
+ */
+export const season = table(
+  { public: true },
+  {
+    number: t.u32().primaryKey(),
+    startsAt: t.timestamp(),
+    endsAt: t.timestamp(),
+    /** 'active' | 'ended' */
+    status: t.string(),
+  }
+);
+
+/** Final standings of each finished season. Bots are excluded. */
+export const seasonResult = table(
+  { public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    seasonNumber: t.u32().index('btree'),
+    rank: t.u32(),
+    identity: t.identity(),
+    name: t.string(),
+    netWorth: t.u64(),
+    startingNetWorth: t.u64(),
+  }
+);
+
+/** Fires `end_season` once, at the active season's end time. */
+export const seasonSchedule = table(
+  { public: false },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+  }
+);
+
 /** Named monotonic counters. `order_seq` gives time priority, since timestamps can tie. */
 export const counter = table(
   { public: false },
@@ -247,6 +287,9 @@ const spacetimedb = schema({
   news,
   botSchedule,
   newsSchedule,
+  season,
+  seasonResult,
+  seasonSchedule,
   counter,
 });
 export default spacetimedb;

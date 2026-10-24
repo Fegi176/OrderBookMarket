@@ -11,12 +11,15 @@ import MyOrders from './components/MyOrders';
 import NewsFeed from './components/NewsFeed';
 import Portfolio from './components/Portfolio';
 import Leaderboard from './components/Leaderboard';
+import SeasonBanner from './components/SeasonBanner';
+import HallOfFame from './components/HallOfFame';
 
-type Page = 'trade' | 'portfolio' | 'leaderboard';
+type Page = 'trade' | 'portfolio' | 'leaderboard' | 'hall';
 const PAGES: { id: Page; label: string }[] = [
   { id: 'trade', label: 'Trade' },
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'leaderboard', label: 'Leaderboard' },
+  { id: 'hall', label: 'Hall of Fame' },
 ];
 
 export default function App() {
@@ -66,6 +69,7 @@ export default function App() {
           ))}
         </nav>
         <div className="balances">
+          <SeasonBanner />
           <span>
             <span className="muted">Player</span> {account.name}
           </span>
@@ -89,6 +93,8 @@ export default function App() {
           onTrade={trade}
         />
       )}
+
+      {page === 'hall' && <HallOfFame me={identity} />}
 
       {page === 'leaderboard' && (
         <section className="panel leaderboard">

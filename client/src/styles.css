@@ -227,6 +227,21 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 .big.down { color: var(--down); }
 .leaderboard { max-width: 640px; }
 
+/* Seasons */
+.season { white-space: nowrap; }
+.notice {
+  flex-basis: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(212, 167, 44, 0.08);
+}
+.hall { display: grid; gap: 12px; max-width: 640px; }
+
 .status { font-size: 12px; text-transform: capitalize; }
 .status.filled, .status.triggered { color: var(--up); }
 .status.cancelled { color: var(--muted); }

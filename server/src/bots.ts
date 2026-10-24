@@ -16,9 +16,9 @@ const BOTS = [
 export const BOT_TICK_MICROS = 3_000_000n;
 
 // Bot balances are topped up from thin air (a "deposit") whenever they run low.
-const BOT_CASH = 1_000_000_000n; // $10M
+export const BOT_CASH = 1_000_000_000n; // $10M
 const BOT_CASH_FLOOR = 100_000_000n; // $1M
-const BOT_SHARES = 100_000n;
+export const BOT_SHARES = 100_000n;
 const BOT_SHARES_FLOOR = 10_000n;
 
 const LEVELS = 3;

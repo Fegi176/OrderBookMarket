@@ -15,4 +15,5 @@ export default __t.row({
   name: __t.string(),
   tickSize: __t.u64().name("tick_size"),
   lastPrice: __t.u64().name("last_price"),
+  listingPrice: __t.u64().name("listing_price"),
 });

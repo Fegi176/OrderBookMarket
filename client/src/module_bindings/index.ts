@@ -52,6 +52,8 @@ import MyHoldingsRow from "./my_holdings_table";
 import MyStopOrdersRow from "./my_stop_orders_table";
 import NewsRow from "./news_table";
 import OrdersRow from "./orders_table";
+import SeasonRow from "./season_table";
+import SeasonResultRow from "./season_result_table";
 import TradeRow from "./trade_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -120,6 +122,31 @@ const tablesSchema = __schema({
       { name: 'orders_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, OrdersRow),
+  season: __table({
+    name: 'season',
+    indexes: [
+      { accessor: 'number', name: 'season_number_idx_btree', algorithm: 'btree', columns: [
+        'number',
+      ] },
+    ],
+    constraints: [
+      { name: 'season_number_key', constraint: 'unique', columns: ['number'] },
+    ],
+  }, SeasonRow),
+  seasonResult: __table({
+    name: 'season_result',
+    indexes: [
+      { accessor: 'id', name: 'season_result_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'seasonNumber', name: 'season_result_season_number_idx_btree', algorithm: 'btree', columns: [
+        'seasonNumber',
+      ] },
+    ],
+    constraints: [
+      { name: 'season_result_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SeasonResultRow),
   trade: __table({
     name: 'trade',
     indexes: [
