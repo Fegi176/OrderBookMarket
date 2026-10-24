@@ -11,6 +11,7 @@ import spacetimedb, {
 } from './schema';
 import { activeSeason, endSeason, startSeason } from './seasons';
 import { computeStandings } from './standings';
+import { pruneHistory } from './prune';
 import { cancelStopOrder, placeStopOrder, triggerStops } from './stops';
 import { CANDLE_INTERVAL_MICROS, rollCandles } from './candles';
 import { BOT_TICK_MICROS, ensureBots, runBots } from './bots';
@@ -81,6 +82,7 @@ export const roll_candles = spacetimedb.reducer(
   ctx => {
     requireModule(ctx, 'roll_candles');
     rollCandles(ctx);
+    pruneHistory(ctx);
   }
 );
 

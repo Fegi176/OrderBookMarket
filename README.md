@@ -73,6 +73,10 @@ Open http://localhost:5173. After changing tables or reducers, republish and reg
   6. opens and schedules the next season.
 
   Accounts carry over, so nobody re-registers. To watch a rollover locally, shorten `SEASON_LENGTH_MICROS` temporarily and republish with `--delete-data=always`.
+- History is pruned so tables stay small within a season (`prune.ts`). Bot activity otherwise adds roughly 0.7 trades and 0.7 order rows a second, and clients download a symbol's full trade and candle history when they subscribe.
+  - Bots' filled and cancelled orders are deleted every tick.
+  - Bot-vs-bot trades older than an hour, and candles older than three hours, are deleted every minute.
+  - Anything involving a player is kept until the season resets.
 - Order history comes free: filled and cancelled orders stay in `orders` with their status and fee, and the portfolio page lists them.
 - Every trade updates the instrument's `lastPrice` and the current one-minute candle in the same transaction. The scheduled `roll_candles` runs each minute and opens a flat candle at the last price for symbols that haven't traded, so the chart has no gaps. Only the module itself may call it.
 - Bots trade through the same engine as players, under two fixed module-owned identities flagged `isBot`.
