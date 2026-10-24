@@ -1,5 +1,9 @@
 // Prices are integer cents on the wire. Keep them as bigint and only format for display.
 
+/** Mirrors FEE_BPS in server/src/engine.ts, for display only; the server charges the real fee. */
+export const TAKER_FEE_BPS = 10n;
+export const feeOn = (notional: bigint) => (notional * TAKER_FEE_BPS + 9_999n) / 10_000n;
+
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 export function fmtCents(cents: bigint): string {

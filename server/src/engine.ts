@@ -1,4 +1,4 @@
-import type { Identity } from 'spacetimedb';
+import { Identity } from 'spacetimedb';
 import { SenderError } from 'spacetimedb/server';
 import type { Ctx, Order } from './schema';
 import { recordTrade } from './candles';
@@ -7,6 +7,41 @@ export type Side = 'buy' | 'sell';
 
 export const STARTING_CASH = 10_000_000n; // $100,000.00 in cents
 export const STARTING_SHARES = 100n; // of every instrument
+
+// ---------------------------------------------------------------------------
+// Fees: takers pay FEE_BPS on what they execute on arrival; resting (maker)
+// orders pay nothing. Fees move to the Exchange account, so cash is conserved.
+// ---------------------------------------------------------------------------
+
+export const FEE_BPS = 10n; // 0.10%
+export const EXCHANGE = new Identity(0xb07_0000_0000_0000n);
+
+/** Fee on a notional amount in cents, rounded up to the next cent. */
+export const feeOn = (notional: bigint) => (notional * FEE_BPS + 9_999n) / 10_000n;
+
+/** Creates the fee-collecting Exchange account if missing. It's flagged as a bot. */
+export function ensureExchange(ctx: Ctx): void {
+  if (ctx.db.account.identity.find(EXCHANGE)) return;
+  ctx.db.account.insert({
+    identity: EXCHANGE,
+    name: 'Exchange',
+    cashAvailable: 0n,
+    cashReserved: 0n,
+    createdAt: ctx.timestamp,
+    isBot: true,
+    startingNetWorth: 0n,
+  });
+}
+
+/** Moves `fee` from the payer's available cash to the Exchange account. */
+function chargeFee(ctx: Ctx, payer: Identity, fee: bigint): void {
+  if (fee === 0n) return;
+  ensureExchange(ctx);
+  const acc = requireAccount(ctx, payer);
+  ctx.db.account.identity.update({ ...acc, cashAvailable: acc.cashAvailable - fee });
+  const ex = requireAccount(ctx, EXCHANGE);
+  ctx.db.account.identity.update({ ...ex, cashAvailable: ex.cashAvailable + fee });
+}
 
 // ---------------------------------------------------------------------------
 // Small helpers over the tables
@@ -114,7 +149,7 @@ function fillAgainst(ctx: Ctx, taker: Order, resting: Order, fill: bigint): Orde
   return { ...taker, remaining: taker.remaining - fill };
 }
 
-function validateSideAndQty(ctx: Ctx, symbol: string, side: string, qty: bigint) {
+export function validateSideAndQty(ctx: Ctx, symbol: string, side: string, qty: bigint) {
   if (side !== 'buy' && side !== 'sell') throw new SenderError("side must be 'buy' or 'sell'");
   const inst = ctx.db.instrument.symbol.find(symbol);
   if (!inst) throw new SenderError(`Unknown symbol ${symbol}`);
@@ -123,7 +158,7 @@ function validateSideAndQty(ctx: Ctx, symbol: string, side: string, qty: bigint)
 }
 
 /** Moves `qty` shares of `symbol` from available to reserved for `owner`. */
-function reserveShares(ctx: Ctx, owner: Identity, symbol: string, qty: bigint) {
+export function reserveShares(ctx: Ctx, owner: Identity, symbol: string, qty: bigint) {
   const h = findHolding(ctx, owner, symbol);
   if (!h || h.qtyAvailable < qty) throw new SenderError('Insufficient shares');
   ctx.db.holding.id.update({
@@ -145,13 +180,15 @@ function insertOrder(ctx: Ctx, owner: Identity, symbol: string, side: Side, pric
     seq: nextSeq(ctx, 'order_seq'),
     status: 'open',
     createdAt: ctx.timestamp,
+    feePaid: 0n,
   });
 }
 
 /**
  * Validates, reserves, matches and rests a limit order for `owner` (the caller, or a bot).
- * Runs inside one reducer,
- * so the whole thing is a single transaction: a thrown error rolls everything back.
+ * Runs inside one reducer, so the whole thing is a single transaction: a thrown error
+ * rolls everything back. Buys also reserve the worst-case taker fee, and get back
+ * whatever the actual fee didn't use.
  */
 export function placeLimitOrder(
   ctx: Ctx,
@@ -169,59 +206,92 @@ export function placeLimitOrder(
   }
 
   const acc = requireAccount(ctx, owner);
+  const feeReserve = side === 'buy' ? feeOn(price * qty) : 0n;
   if (side === 'buy') {
     const cost = price * qty;
-    if (acc.cashAvailable < cost) throw new SenderError('Insufficient cash');
+    if (acc.cashAvailable < cost + feeReserve) throw new SenderError('Insufficient cash');
     ctx.db.account.identity.update({
       ...acc,
-      cashAvailable: acc.cashAvailable - cost,
-      cashReserved: acc.cashReserved + cost,
+      cashAvailable: acc.cashAvailable - cost - feeReserve,
+      cashReserved: acc.cashReserved + cost + feeReserve,
     });
   } else {
     reserveShares(ctx, owner, symbol, qty);
   }
 
   let taker = insertOrder(ctx, owner, symbol, side as Side, price, qty);
+  let notional = 0n;
 
   // 2-4. Walk the opposite side until filled or the book no longer crosses.
   for (const resting of crossingOrders(ctx, symbol, taker.side as Side, price)) {
     if (taker.remaining === 0n) break;
     // 6. Self-trade prevention: skip our own resting orders.
     if (resting.owner.isEqual(owner)) continue;
-    taker = fillAgainst(ctx, taker, resting, min(taker.remaining, resting.remaining));
+    const fill = min(taker.remaining, resting.remaining);
+    notional += resting.price * fill;
+    taker = fillAgainst(ctx, taker, resting, fill);
   }
+
+  // Release the fee reserve, then charge the fee on what actually executed. Whatever
+  // rests on the book is a maker order from here on and never pays a fee.
+  if (feeReserve > 0n) {
+    const a = requireAccount(ctx, owner);
+    ctx.db.account.identity.update({
+      ...a,
+      cashReserved: a.cashReserved - feeReserve,
+      cashAvailable: a.cashAvailable + feeReserve,
+    });
+  }
+  const fee = feeOn(notional);
+  chargeFee(ctx, owner, fee);
 
   // 5. Whatever is left stays on the book.
   return ctx.db.orders.id.update({
     ...taker,
     status: taker.remaining === 0n ? 'filled' : 'open',
+    feePaid: fee,
   });
 }
 
 /**
  * Fills as much as possible against the book right now, then cancels the rest
  * (immediate-or-cancel). Market orders never rest, so they are stored with price 0.
- * Buys stop when the next fill is unaffordable; sells reserve all shares up front.
- * Fails, rolling everything back, if nothing at all could be filled.
+ * Buys stop when the next fill plus the fee is unaffordable; sells reserve all shares
+ * up front.
+ *
+ * Every rejection happens before the first write, so callers (bots, stop triggers) can
+ * catch the error without leaving a half-placed order behind.
  */
 export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side: string, qty: bigint): Order {
   validateSideAndQty(ctx, symbol, side, qty);
-  requireAccount(ctx, owner);
+  const budget = requireAccount(ctx, owner).cashAvailable;
+  const book = crossingOrders(ctx, symbol, side as Side, null).filter(o => !o.owner.isEqual(owner));
+  if (!book.length) throw new SenderError('No matching orders on the book');
+  if (side === 'buy' && budget < book[0].price + feeOn(book[0].price)) {
+    throw new SenderError('Insufficient cash');
+  }
   if (side === 'sell') reserveShares(ctx, owner, symbol, qty);
 
   let taker = insertOrder(ctx, owner, symbol, side as Side, 0n, qty);
+  let notional = 0n;
 
-  for (const resting of crossingOrders(ctx, symbol, taker.side as Side, null)) {
+  for (const resting of book) {
     if (taker.remaining === 0n) break;
-    if (resting.owner.isEqual(owner)) continue;
 
     let fill = min(taker.remaining, resting.remaining);
     if (taker.side === 'buy') {
+      // Largest fill whose cost, plus the fee on everything bought so far, fits the budget.
+      fill = min(fill, (budget - notional) / resting.price);
+      while (fill > 0n) {
+        const total = notional + resting.price * fill;
+        if (total + feeOn(total) <= budget) break;
+        fill -= 1n;
+      }
+      if (fill === 0n) break; // asks only get pricier from here
       // Reserve exactly this fill's cost, then settle as if the limit were the resting price.
       const acc = requireAccount(ctx, owner);
-      fill = min(fill, acc.cashAvailable / resting.price);
-      if (fill === 0n) break; // asks only get pricier from here
       const cost = resting.price * fill;
+      notional += cost;
       ctx.db.account.identity.update({
         ...acc,
         cashAvailable: acc.cashAvailable - cost,
@@ -230,11 +300,13 @@ export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side
       taker = fillAgainst(ctx, { ...taker, price: resting.price }, resting, fill);
       taker = { ...taker, price: 0n };
     } else {
+      notional += resting.price * fill;
       taker = fillAgainst(ctx, taker, resting, fill);
     }
   }
 
-  if (taker.remaining === taker.qty) throw new SenderError('No matching orders on the book');
+  const fee = feeOn(notional);
+  chargeFee(ctx, owner, fee);
 
   if (taker.side === 'sell' && taker.remaining > 0n) {
     // Release the shares that found no buyer.
@@ -249,6 +321,7 @@ export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side
   return ctx.db.orders.id.update({
     ...taker,
     status: taker.remaining === 0n ? 'filled' : 'cancelled',
+    feePaid: fee,
   });
 }
 

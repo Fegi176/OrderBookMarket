@@ -1,6 +1,7 @@
 import { Identity } from 'spacetimedb';
 import type { Ctx, Order } from './schema';
 import { cancelOrder, getOrCreateHolding, placeLimitOrder, placeMarketOrder } from './engine';
+import { triggerStops } from './stops';
 
 // Fixed identities owned by the module. Real client identities are hashes, so these
 // can't collide with a player.
@@ -126,5 +127,6 @@ export function runBots(ctx: Ctx): void {
     const anchor = roundToTick(last + ((fair - last) * DRIFT_PCT) / 100n + jitter, inst.tickSize);
     quote(ctx, inst.symbol, inst.tickSize, anchor);
     noiseTrade(ctx, inst.symbol, last, fair);
+    triggerStops(ctx, inst.symbol);
   }
 }

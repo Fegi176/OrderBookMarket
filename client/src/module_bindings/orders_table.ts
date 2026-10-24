@@ -21,4 +21,5 @@ export default __t.row({
   seq: __t.u64(),
   status: __t.string(),
   createdAt: __t.timestamp().name("created_at"),
+  feePaid: __t.u64().name("fee_paid"),
 });

@@ -35,8 +35,10 @@ import {
 
 // Import all reducer arg schemas
 import CancelOrderReducer from "./cancel_order_reducer";
+import CancelStopOrderReducer from "./cancel_stop_order_reducer";
 import PlaceLimitOrderReducer from "./place_limit_order_reducer";
 import PlaceMarketOrderReducer from "./place_market_order_reducer";
+import PlaceStopOrderReducer from "./place_stop_order_reducer";
 import RegisterReducer from "./register_reducer";
 
 // Import all procedure arg schemas
@@ -47,6 +49,7 @@ import InstrumentRow from "./instrument_table";
 import LeaderboardRow from "./leaderboard_table";
 import MyAccountRow from "./my_account_table";
 import MyHoldingsRow from "./my_holdings_table";
+import MyStopOrdersRow from "./my_stop_orders_table";
 import NewsRow from "./news_table";
 import OrdersRow from "./orders_table";
 import TradeRow from "./trade_table";
@@ -152,13 +155,22 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyHoldingsRow),
+  myStopOrders: __table({
+    name: 'my_stop_orders',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyStopOrdersRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("cancel_order", CancelOrderReducer),
+  __reducerSchema("cancel_stop_order", CancelStopOrderReducer),
   __reducerSchema("place_limit_order", PlaceLimitOrderReducer),
   __reducerSchema("place_market_order", PlaceMarketOrderReducer),
+  __reducerSchema("place_stop_order", PlaceStopOrderReducer),
   __reducerSchema("register", RegisterReducer),
 );
 
@@ -172,6 +184,8 @@ type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "ta
     readonly "my_account": Omit<typeof tablesSchema.schemaType.tables["myAccount"], "accessorName"> & { readonly accessorName: "my_account" };
     /** @deprecated Use `myHoldings` instead. This alias will be removed in the next major version. */
     readonly "my_holdings": Omit<typeof tablesSchema.schemaType.tables["myHoldings"], "accessorName"> & { readonly accessorName: "my_holdings" };
+    /** @deprecated Use `myStopOrders` instead. This alias will be removed in the next major version. */
+    readonly "my_stop_orders": Omit<typeof tablesSchema.schemaType.tables["myStopOrders"], "accessorName"> & { readonly accessorName: "my_stop_orders" };
   };
 };
 
@@ -192,6 +206,7 @@ const REMOTE_MODULE = {
 const tableAccessorAliases = {
   "my_account": "myAccount",
   "my_holdings": "myHoldings",
+  "my_stop_orders": "myStopOrders",
 } as const;
 
 function __withTableAccessorAliases<T extends object>(target: T, freeze = false): T {
@@ -216,6 +231,8 @@ export type DbView = __DbViewBase & {
   readonly "my_account": __DbViewBase["myAccount"];
   /** @deprecated Use `myHoldings` instead. This alias will be removed in the next major version. */
   readonly "my_holdings": __DbViewBase["myHoldings"];
+  /** @deprecated Use `myStopOrders` instead. This alias will be removed in the next major version. */
+  readonly "my_stop_orders": __DbViewBase["myStopOrders"];
 };
 
 type __TablesBase = __QueryBuilder<typeof tablesSchema.schemaType>;
@@ -224,6 +241,8 @@ export type Tables = __TablesBase & {
   readonly "my_account": __TablesBase["myAccount"];
   /** @deprecated Use `myHoldings` instead. This alias will be removed in the next major version. */
   readonly "my_holdings": __TablesBase["myHoldings"];
+  /** @deprecated Use `myStopOrders` instead. This alias will be removed in the next major version. */
+  readonly "my_stop_orders": __TablesBase["myStopOrders"];
 };
 
 /** The tables available in this remote SpacetimeDB module. Each table reference doubles as a query builder. */

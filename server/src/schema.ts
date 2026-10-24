@@ -86,6 +86,46 @@ export const orders = table(
     seq: t.u64(),
     status: t.string(),
     createdAt: t.timestamp(),
+    /** Taker fee charged on the part of this order that executed on arrival. */
+    feePaid: t.u64(),
+  }
+);
+
+/**
+ * Stop orders wait off the book until the last trade price reaches `stopPrice`
+ * (at or above for buys, at or below for sells), then fire as market orders.
+ * `status` is 'pending' | 'triggered' | 'cancelled' | 'failed'. Private: other
+ * players can't see where your stops sit. Clients use the `my_stop_orders` view.
+ */
+export const stopOrder = table(
+  {
+    public: false,
+    indexes: [
+      {
+        accessor: 'bySymbolStatus',
+        algorithm: 'btree',
+        columns: ['symbol', 'status'] as const,
+      },
+      {
+        accessor: 'byOwner',
+        algorithm: 'btree',
+        columns: ['owner'] as const,
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    owner: t.identity(),
+    symbol: t.string(),
+    side: t.string(),
+    stopPrice: t.u64(),
+    qty: t.u64(),
+    status: t.string(),
+    createdAt: t.timestamp(),
+    /** The market order it became once triggered; 0 until then. */
+    orderId: t.u64(),
+    /** Why a stop failed, e.g. "No matching orders on the book". Empty otherwise. */
+    note: t.string(),
   }
 );
 
@@ -199,6 +239,7 @@ const spacetimedb = schema({
   instrument,
   holding,
   orders,
+  stopOrder,
   trade,
   candle,
   candleSchedule,

@@ -5,8 +5,10 @@ import spacetimedb, {
   candleSchedule,
   holding,
   newsSchedule,
+  stopOrder,
   type Ctx,
 } from './schema';
+import { cancelStopOrder, placeStopOrder, triggerStops } from './stops';
 import { CANDLE_INTERVAL_MICROS, rollCandles } from './candles';
 import { BOT_TICK_MICROS, ensureBots, runBots } from './bots';
 import { fireNews, scheduleNextNews } from './news';
@@ -14,6 +16,7 @@ import {
   STARTING_CASH,
   STARTING_SHARES,
   cancelOrder,
+  ensureExchange,
   getOrCreateHolding,
   placeLimitOrder,
   placeMarketOrder,
@@ -52,6 +55,7 @@ export const init = spacetimedb.init(ctx => {
     ctx.db.botSchedule.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.interval(BOT_TICK_MICROS) });
   }
   if (ctx.db.newsSchedule.count() === 0n) scheduleNextNews(ctx);
+  ensureExchange(ctx);
   ensureBots(ctx);
   rollCandles(ctx);
 });
@@ -122,10 +126,13 @@ export const register = spacetimedb.reducer({ name: t.string() }, (ctx, { name }
   }
 });
 
+// Anything that can trade moves the last price, so stops on that symbol are checked after.
+
 export const place_limit_order = spacetimedb.reducer(
   { symbol: t.string(), side: t.string(), price: t.u64(), qty: t.u64() },
   (ctx, { symbol, side, price, qty }) => {
     placeLimitOrder(ctx, ctx.sender, symbol, side, price, qty);
+    triggerStops(ctx, symbol);
   }
 );
 
@@ -133,11 +140,23 @@ export const place_market_order = spacetimedb.reducer(
   { symbol: t.string(), side: t.string(), qty: t.u64() },
   (ctx, { symbol, side, qty }) => {
     placeMarketOrder(ctx, ctx.sender, symbol, side, qty);
+    triggerStops(ctx, symbol);
   }
 );
 
 export const cancel_order = spacetimedb.reducer({ orderId: t.u64() }, (ctx, { orderId }) => {
   cancelOrder(ctx, ctx.sender, orderId);
+});
+
+export const place_stop_order = spacetimedb.reducer(
+  { symbol: t.string(), side: t.string(), stopPrice: t.u64(), qty: t.u64() },
+  (ctx, { symbol, side, stopPrice, qty }) => {
+    placeStopOrder(ctx, ctx.sender, symbol, side, stopPrice, qty);
+  }
+);
+
+export const cancel_stop_order = spacetimedb.reducer({ stopId: t.u64() }, (ctx, { stopId }) => {
+  cancelStopOrder(ctx, ctx.sender, stopId);
 });
 
 // ---------------------------------------------------------------------------
@@ -154,6 +173,12 @@ export const my_holdings = spacetimedb.view(
   { name: 'my_holdings', public: true },
   t.array(holding.rowType),
   ctx => [...ctx.db.holding.byOwnerSymbol.filter(ctx.sender)]
+);
+
+export const my_stop_orders = spacetimedb.view(
+  { name: 'my_stop_orders', public: true },
+  t.array(stopOrder.rowType),
+  ctx => [...ctx.db.stopOrder.byOwner.filter(ctx.sender)]
 );
 
 // ---------------------------------------------------------------------------

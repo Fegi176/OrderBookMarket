@@ -185,7 +185,7 @@ button.primary.sell { background: var(--down); color: #fff; }
 button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 button.link { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; }
 
-.toggle { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.toggle { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .toggle button { background: none; border: 0; color: var(--muted); padding: 7px; cursor: pointer; }
 .toggle button.on { background: var(--border); color: var(--text); }
 .toggle button.on.buy { background: var(--up); color: #fff; }
@@ -226,3 +226,9 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 .big.up { color: var(--up); }
 .big.down { color: var(--down); }
 .leaderboard { max-width: 640px; }
+
+.status { font-size: 12px; text-transform: capitalize; }
+.status.filled, .status.triggered { color: var(--up); }
+.status.cancelled { color: var(--muted); }
+.status.failed { color: var(--down); }
+.status.pending, .status.open { color: var(--accent); }

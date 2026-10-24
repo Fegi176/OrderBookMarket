@@ -4,16 +4,27 @@ import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 import { cmpBig, fmtPrice } from '../format';
 
-/** Your open orders in this symbol, read from the book subscription, with cancel buttons. */
+/**
+ * Your open orders in this symbol (read from the book subscription) and your pending
+ * stops (from the private my_stop_orders view), each with a cancel button.
+ */
 export default function MyOrders({ symbol, me }: { symbol: string; me: Identity }) {
   const cancel = useReducer(reducers.cancelOrder);
+  const cancelStop = useReducer(reducers.cancelStopOrder);
   const [error, setError] = useState<string | null>(null);
   const [open] = useTable(
     tables.orders.where(r => r.symbol.eq(symbol)).where(r => r.status.eq('open'))
   );
-  const mine = open.filter(o => o.owner.isEqual(me)).sort((a, b) => cmpBig(b.seq, a.seq));
+  const [stops] = useTable(tables.myStopOrders);
 
-  if (!mine.length) return null;
+  const mine = open.filter(o => o.owner.isEqual(me)).sort((a, b) => cmpBig(b.seq, a.seq));
+  const pending = stops
+    .filter(s => s.symbol === symbol && s.status === 'pending')
+    .sort((a, b) => cmpBig(b.id, a.id));
+
+  if (!mine.length && !pending.length) return null;
+
+  const onError = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
 
   return (
     <div className="my-orders">
@@ -26,15 +37,19 @@ export default function MyOrders({ symbol, me }: { symbol: string; me: Identity 
             {o.remaining !== o.qty && <span className="muted">/{o.qty.toString()}</span>} @{' '}
             {fmtPrice(o.price)}
           </span>
-          <button
-            type="button"
-            className="link"
-            onClick={() =>
-              cancel({ orderId: o.id }).catch(err =>
-                setError(err instanceof Error ? err.message : String(err))
-              )
-            }
-          >
+          <button type="button" className="link" onClick={() => cancel({ orderId: o.id }).catch(onError)}>
+            Cancel
+          </button>
+        </div>
+      ))}
+      {pending.map(s => (
+        <div key={`stop-${s.id}`} className="my-order">
+          <span className={s.side === 'buy' ? 'buy-text' : 'sell-text'}>{s.side}</span>
+          <span>
+            {s.qty.toString()} <span className="muted">stop {s.side === 'buy' ? '≥' : '≤'}</span>{' '}
+            {fmtPrice(s.stopPrice)}
+          </span>
+          <button type="button" className="link" onClick={() => cancelStop({ stopId: s.id }).catch(onError)}>
             Cancel
           </button>
         </div>

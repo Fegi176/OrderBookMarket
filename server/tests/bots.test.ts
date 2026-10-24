@@ -40,7 +40,8 @@ beforeEach(() => {
 describe('run_bots', () => {
   it('creates bot accounts flagged as bots', () => {
     const bots = [...h.db.account.iter()].filter(a => a.isBot);
-    expect(bots.map(b => b.name).sort()).toEqual(['Liquidity Bot', 'Noise Bot']);
+    // The fee-collecting Exchange account is module-owned too.
+    expect(bots.map(b => b.name).sort()).toEqual(['Exchange', 'Liquidity Bot', 'Noise Bot']);
   });
 
   it('keeps a two-sided book around the last price for every symbol', () => {

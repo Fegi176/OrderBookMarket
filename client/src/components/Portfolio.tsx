@@ -16,13 +16,26 @@ type Props = {
 };
 
 const RECENT_FILLS = 20;
+const ORDER_HISTORY = 30;
 
 export default function Portfolio({ me, account, holdings, instruments, onTrade }: Props) {
   const cancel = useReducer(reducers.cancelOrder);
+  const cancelStop = useReducer(reducers.cancelStopOrder);
   const [error, setError] = useState<string | null>(null);
-  const [openOrders] = useTable(
-    tables.orders.where(r => r.owner.eq(me)).where(r => r.status.eq('open'))
+  // All of this player's orders, any status: open ones get cancel buttons, the rest are history.
+  const [myOrders] = useTable(tables.orders.where(r => r.owner.eq(me)));
+  const [stops] = useTable(tables.myStopOrders);
+  const openOrders = myOrders.filter(o => o.status === 'open');
+  const history = useMemo(
+    () =>
+      myOrders
+        .filter(o => o.status !== 'open')
+        .sort((a, b) => cmpBig(b.seq, a.seq))
+        .slice(0, ORDER_HISTORY),
+    [myOrders]
   );
+  const stopRows = useMemo(() => [...stops].sort((a, b) => cmpBig(b.id, a.id)), [stops]);
+  const onError = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
   const [bought] = useTable(tables.trade.where(r => r.buyer.eq(me)));
   const [sold] = useTable(tables.trade.where(r => r.seller.eq(me)));
 
@@ -148,15 +161,7 @@ export default function Portfolio({ me, account, holdings, instruments, onTrade 
                       {(o.qty - o.remaining).toString()} / {o.qty.toString()}
                     </td>
                     <td className="num">
-                      <button
-                        type="button"
-                        className="link"
-                        onClick={() =>
-                          cancel({ orderId: o.id }).catch(err =>
-                            setError(err instanceof Error ? err.message : String(err))
-                          )
-                        }
-                      >
+                      <button type="button" className="link" onClick={() => cancel({ orderId: o.id }).catch(onError)}>
                         Cancel
                       </button>
                     </td>
@@ -168,6 +173,91 @@ export default function Portfolio({ me, account, holdings, instruments, onTrade 
           <p className="muted small">No open orders.</p>
         )}
         {error && <p className="error small">{error}</p>}
+      </section>
+
+      <section className="panel">
+        <h2>Stop orders</h2>
+        {stopRows.length ? (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th className="num">Stop</th>
+                <th className="num">Shares</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {stopRows.map(s => (
+                <tr key={s.id.toString()}>
+                  <td>{s.symbol}</td>
+                  <td className={s.side === 'buy' ? 'buy-text' : 'sell-text'}>{s.side}</td>
+                  <td className="num">
+                    {s.side === 'buy' ? '≥ ' : '≤ '}
+                    {fmtPrice(s.stopPrice)}
+                  </td>
+                  <td className="num">{s.qty.toString()}</td>
+                  <td>
+                    <span className={`status ${s.status}`}>{s.status}</span>
+                    {s.note && <span className="muted small"> · {s.note}</span>}
+                  </td>
+                  <td className="num">
+                    {s.status === 'pending' && (
+                      <button type="button" className="link" onClick={() => cancelStop({ stopId: s.id }).catch(onError)}>
+                        Cancel
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="muted small">No stop orders. Place one from the Trade page.</p>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>Order history</h2>
+        {history.length ? (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Type</th>
+                <th className="num">Price</th>
+                <th className="num">Filled</th>
+                <th className="num">Fee</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map(o => (
+                <tr key={o.id.toString()}>
+                  <td className="muted">{fmtTime(o.createdAt.microsSinceUnixEpoch)}</td>
+                  <td>{o.symbol}</td>
+                  <td className={o.side === 'buy' ? 'buy-text' : 'sell-text'}>{o.side}</td>
+                  {/* Market orders are stored with price 0. */}
+                  <td>{o.price === 0n ? 'market' : 'limit'}</td>
+                  <td className="num">{o.price === 0n ? '—' : fmtPrice(o.price)}</td>
+                  <td className="num">
+                    {(o.qty - o.remaining).toString()} / {o.qty.toString()}
+                  </td>
+                  <td className="num">{o.feePaid > 0n ? fmtCents(o.feePaid) : '—'}</td>
+                  <td>
+                    <span className={`status ${o.status}`}>{o.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="muted small">No filled or cancelled orders yet.</p>
+        )}
       </section>
 
       <section className="panel">

@@ -131,6 +131,7 @@ export default function App() {
                 <OrderForm
                   symbol={symbol}
                   tickSize={sorted.find(i => i.symbol === symbol)?.tickSize ?? 1n}
+                  lastPrice={sorted.find(i => i.symbol === symbol)?.lastPrice ?? 0n}
                   cash={account.cashAvailable}
                   shares={holding?.qtyAvailable ?? 0n}
                 />

@@ -3,7 +3,7 @@ import { ConnectionId } from 'spacetimedb';
 import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
 import * as mod from '../src/index';
 import spacetimedb from '../src/schema';
-import { STARTING_CASH, STARTING_SHARES } from '../src/engine';
+import { STARTING_CASH, STARTING_SHARES, feeOn } from '../src/engine';
 
 const makeHarness = () => createModuleTestHarness(spacetimedb, mod);
 let h: ReturnType<typeof makeHarness>;
@@ -53,9 +53,11 @@ describe('leaderboard', () => {
 
     const repricing = STARTING_SHARES * (5_000n - 4_250n); // everyone's 100 BRKT got repriced
     const byName = Object.fromEntries(board().map(r => [r.name, r.netWorth]));
-    // Alice paid $500 for shares now worth $500; Bob received $500 for shares worth $500.
-    expect(byName.Alice).toBe(STARTING_CASH + listingValue + repricing);
+    // Alice paid $500 for shares now worth $500, plus the taker fee;
+    // Bob received $500 for shares worth $500.
+    expect(byName.Alice).toBe(STARTING_CASH + listingValue + repricing - feeOn(50_000n));
     expect(byName.Bob).toBe(STARTING_CASH + listingValue + repricing);
+    expect(byName.Exchange).toBeUndefined();
   });
 
   it('ranks by net worth, highest first', () => {

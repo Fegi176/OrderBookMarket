@@ -91,6 +91,9 @@ export type MyAccount = __Infer<typeof MyAccount>;
 export const MyHoldings = __t.object("MyHoldings", {});
 export type MyHoldings = __Infer<typeof MyHoldings>;
 
+export const MyStopOrders = __t.object("MyStopOrders", {});
+export type MyStopOrders = __Infer<typeof MyStopOrders>;
+
 export const News = __t.object("News", {
   id: __t.u64(),
   symbol: __t.string(),
@@ -117,8 +120,23 @@ export const Orders = __t.object("Orders", {
   seq: __t.u64(),
   status: __t.string(),
   createdAt: __t.timestamp(),
+  feePaid: __t.u64(),
 });
 export type Orders = __Infer<typeof Orders>;
+
+export const StopOrder = __t.object("StopOrder", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  symbol: __t.string(),
+  side: __t.string(),
+  stopPrice: __t.u64(),
+  qty: __t.u64(),
+  status: __t.string(),
+  createdAt: __t.timestamp(),
+  orderId: __t.u64(),
+  note: __t.string(),
+});
+export type StopOrder = __Infer<typeof StopOrder>;
 
 export const Trade = __t.object("Trade", {
   id: __t.u64(),

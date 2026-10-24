@@ -3,7 +3,7 @@ import { ConnectionId, type Identity } from 'spacetimedb';
 import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
 import * as mod from '../src/index';
 import spacetimedb from '../src/schema';
-import { STARTING_CASH, STARTING_SHARES } from '../src/engine';
+import { EXCHANGE, STARTING_CASH, STARTING_SHARES, feeOn } from '../src/engine';
 
 const makeHarness = () => createModuleTestHarness(spacetimedb, mod);
 
@@ -95,9 +95,11 @@ describe('limit orders', () => {
     expect(trades[0].price).toBe(900n);
     expect(trades[0].qty).toBe(10n);
 
-    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 9_000n);
+    // Alice took liquidity, so she pays the taker fee; Bob's resting order pays none.
+    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 9_000n - feeOn(9_000n));
     expect(acct(A).cashReserved).toBe(0n);
     expect(acct(B).cashAvailable).toBe(STARTING_CASH + 9_000n);
+    expect(acct(EXCHANGE).cashAvailable).toBe(feeOn(9_000n));
     expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES + 10n);
     expect(shares(B, 'BRKT').qtyAvailable).toBe(STARTING_SHARES - 10n);
     expect(shares(B, 'BRKT').qtyReserved).toBe(0n);
@@ -161,7 +163,8 @@ describe('market orders', () => {
       [1000n, 5n],
       [1010n, 3n],
     ]);
-    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 5n * 1000n - 3n * 1010n);
+    const notional = 5n * 1000n + 3n * 1010n;
+    expect(acct(A).cashAvailable).toBe(STARTING_CASH - notional - feeOn(notional));
     expect(acct(A).cashReserved).toBe(0n);
     expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES + 8n);
   });
@@ -179,12 +182,13 @@ describe('market orders', () => {
   });
 
   it('stops buying when cash runs out', () => {
-    const price = 1_000_000n; // $10,000 a share, so starting cash buys 10
+    // $10,000 a share: starting cash covers 10 shares, but not 10 plus the fee, so 9.
+    const price = 1_000_000n;
     limit(bob, 'BRKT', 'sell', price, 15n);
     market(alice, 'BRKT', 'buy', 15n);
 
-    expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES + 10n);
-    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 10n * price);
+    expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES + 9n);
+    expect(acct(A).cashAvailable).toBe(STARTING_CASH - 9n * price - feeOn(9n * price));
     expect(acct(A).cashReserved).toBe(0n);
   });
 
@@ -249,23 +253,38 @@ describe('invariants', () => {
       const price = BigInt(950 + rand(20) * 5);
       const [symbol, side, qty] = [symbols[rand(2)], rand(2) ? 'buy' : 'sell', BigInt(1 + rand(20))];
       try {
-        if (rand(5) === 0) market(who, symbol, side, qty);
-        else limit(who, symbol, side, price, qty);
+        const roll = rand(10);
+        if (roll < 2) market(who, symbol, side, qty);
+        else if (roll < 4) {
+          // A stop a few ticks either side of the last price, so the random flow fires some.
+          const last = h.db.instrument.symbol.find(symbol)!.lastPrice;
+          const offset = BigInt(1 + rand(10)) * 5n;
+          const stopPrice = side === 'buy' ? last + offset : last - offset;
+          h.withReducerTx(who, ctx => mod.place_stop_order(ctx, { symbol, side, stopPrice, qty }));
+        } else limit(who, symbol, side, price, qty);
       } catch {}
     }
 
     expect(h.db.trade.count()).toBeGreaterThan(0n);
     expect(totals()).toEqual(before);
+    const stopStatuses = new Set([...h.db.stopOrder.iter()].map(s => s.status));
+    // Stops were placed and some fired. In this thin random book many find nothing to
+    // sell into and fail, which is fine here; successful triggers have their own tests.
+    expect(stopStatuses.has('pending')).toBe(true);
+    expect(stopStatuses.has('triggered') || stopStatuses.has('failed')).toBe(true);
 
-    // Reserved amounts must equal exactly what open orders still hold.
+    // Reserved amounts must equal exactly what open orders and pending sell stops hold.
     for (const id of [A, B, C]) {
       const open = [...h.db.orders.byOwner.filter(id)].filter(o => o.status === 'open');
+      const pendingStops = [...h.db.stopOrder.iter()].filter(
+        s => s.owner.isEqual(id) && s.status === 'pending' && s.side === 'sell'
+      );
       const cashHeld = open.filter(o => o.side === 'buy').reduce((s, o) => s + o.price * o.remaining, 0n);
       expect(acct(id).cashReserved).toBe(cashHeld);
       for (const symbol of symbols) {
-        const sharesHeld = open
-          .filter(o => o.side === 'sell' && o.symbol === symbol)
-          .reduce((s, o) => s + o.remaining, 0n);
+        const sharesHeld =
+          open.filter(o => o.side === 'sell' && o.symbol === symbol).reduce((s, o) => s + o.remaining, 0n) +
+          pendingStops.filter(s => s.symbol === symbol).reduce((s, o) => s + o.qty, 0n);
         expect(shares(id, symbol).qtyReserved).toBe(sharesHeld);
       }
     }
