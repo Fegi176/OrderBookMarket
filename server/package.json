@@ -1,0 +1,20 @@
+{
+  "name": "order-book-market-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SpacetimeDB module for the Order-Book Marketplace game",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "spacetimedb": "2.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
