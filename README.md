@@ -1,5 +1,7 @@
 # Order-Book Marketplace
 
+[![Tests](https://github.com/Fegi176/OrderBookMarket/actions/workflows/test.yml/badge.svg)](https://github.com/Fegi176/OrderBookMarket/actions/workflows/test.yml)
+
 A fictional stock exchange game on SpacetimeDB with a real price-time-priority order book. See [SPEC.md](SPEC.md) for the full design.
 
 ## Layout
