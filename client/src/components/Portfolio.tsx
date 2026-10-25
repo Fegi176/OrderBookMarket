@@ -6,6 +6,7 @@ import MyAccountRow from '../module_bindings/my_account_table';
 import MyHoldingsRow from '../module_bindings/my_holdings_table';
 import InstrumentRow from '../module_bindings/instrument_table';
 import { cmpBig, fmtCents, fmtPrice, fmtReturn, fmtTime } from '../format';
+import { mergeFills, percentOf, summarizePortfolio } from '../lib/market';
 
 type Props = {
   me: Identity;
@@ -41,33 +42,12 @@ export default function Portfolio({ me, account, holdings, instruments, onTrade 
 
   const price = useMemo(() => new Map(instruments.map(i => [i.symbol, i.lastPrice])), [instruments]);
 
-  const positions = useMemo(
-    () =>
-      [...holdings]
-        .map(h => {
-          const qty = h.qtyAvailable + h.qtyReserved;
-          const last = price.get(h.symbol) ?? 0n;
-          return { ...h, qty, last, value: qty * last };
-        })
-        .filter(p => p.qty > 0n)
-        .sort((a, b) => cmpBig(b.value, a.value)),
-    [holdings, price]
+  const { positions, cash, sharesValue, netWorth, pnl } = useMemo(
+    () => summarizePortfolio(account, holdings, price),
+    [account, holdings, price]
   );
-
-  const sharesValue = positions.reduce((s, p) => s + p.value, 0n);
-  const cash = account.cashAvailable + account.cashReserved;
-  const netWorth = cash + sharesValue;
-  const pnl = netWorth - account.startingNetWorth;
-
-  const fills = useMemo(
-    () =>
-      [...bought.map(t => ({ t, side: 'buy' as const })), ...sold.map(t => ({ t, side: 'sell' as const }))]
-        .sort((a, b) => cmpBig(b.t.id, a.t.id))
-        .slice(0, RECENT_FILLS),
-    [bought, sold]
-  );
-
-  const share = (v: bigint) => (netWorth ? `${Number((v * 1000n) / netWorth) / 10}%` : '—');
+  const fills = useMemo(() => mergeFills(bought, sold, RECENT_FILLS), [bought, sold]);
+  const share = (v: bigint) => percentOf(v, netWorth);
 
   return (
     <div className="portfolio">

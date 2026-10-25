@@ -75,4 +75,4 @@ Start with the engine and test it without a UI, then add features in this order.
 ## Open questions
 
 - [x] Which language for the module: Rust, C# or TypeScript? **TypeScript**
-- [ ] Is this for school, work or a portfolio, and is there a deadline?
+- [x] Is this for school, work or a portfolio, and is there a deadline? **A CV/portfolio project, no deadline.**

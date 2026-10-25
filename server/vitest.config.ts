@@ -5,5 +5,6 @@ export default defineConfig({
   plugins: [spacetimedbModuleTestPlugin()],
   test: {
     include: ['tests/**/*.test.ts'],
+    coverage: { include: ['src/**'], reporter: ['text', 'html'] },
   },
 });

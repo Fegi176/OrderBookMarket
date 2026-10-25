@@ -2,22 +2,14 @@ import { useMemo } from 'react';
 import type { Identity } from 'spacetimedb';
 import { useTable } from 'spacetimedb/react';
 import { tables } from '../module_bindings';
-import { cmpBig, fmtPrice, fmtTime } from '../format';
+import { fmtPrice, fmtTime } from '../format';
+import { recentTicks } from '../lib/market';
 
 const SHOWN = 30;
 
 export default function TradeFeed({ symbol, me }: { symbol: string; me: Identity }) {
   const [trades, ready] = useTable(tables.trade.where(r => r.symbol.eq(symbol)));
-
-  const recent = useMemo(() => {
-    const newestFirst = [...trades].sort((a, b) => cmpBig(b.id, a.id)).slice(0, SHOWN + 1);
-    // Colour each trade by whether it ticked up or down from the one before it.
-    return newestFirst.slice(0, SHOWN).map((t, i) => {
-      const prev = newestFirst[i + 1];
-      const tick = !prev || t.price === prev.price ? 'flat' : t.price > prev.price ? 'up' : 'down';
-      return { t, tick };
-    });
-  }, [trades]);
+  const recent = useMemo(() => recentTicks(trades, SHOWN), [trades]);
 
   if (!recent.length) {
     return <p className="muted small">{ready ? 'No trades yet.' : 'Loading trades…'}</p>;
