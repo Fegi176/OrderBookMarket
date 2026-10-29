@@ -1,48 +1,30 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConnectionId, Timestamp } from 'spacetimedb';
-import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
-import * as mod from '../src/index';
-import spacetimedb from '../src/schema';
+import { createGame, mod, TestAuth, type Game, type Harness } from './helpers';
 import { CANDLE_INTERVAL_MICROS } from '../src/candles';
 
-const makeHarness = () => createModuleTestHarness(spacetimedb, mod);
-let h: ReturnType<typeof makeHarness>;
-let nextConn = 1n;
-
-function player(sub: string): TestAuth {
-  return TestAuth.fromJwtPayload(
-    JSON.stringify({ iss: 'https://test.local', sub, aud: ['order-book'] }),
-    new ConnectionId(nextConn++)
-  );
-}
-
-function limit(auth: TestAuth, symbol: string, side: string, price: bigint, qty: bigint) {
-  h.withReducerTx(auth, ctx => mod.place_limit_order(ctx, { symbol, side, price, qty }));
-}
-
-function roll() {
-  h.withReducerTx(TestAuth.internal(), ctx =>
-    mod.roll_candles(ctx, { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval', value: null as any } } })
-  );
-}
-
 const MINUTE = CANDLE_INTERVAL_MICROS;
-const at = (micros: bigint) => h.clock.set(new Timestamp(micros));
+
+let g: Game;
+let h: Harness;
+
+const limit = (a: TestAuth, symbol: string, side: string, price: bigint, qty: bigint) =>
+  g.limit(a, symbol, side, price, qty);
+const roll = () => g.roll();
+const at = (micros: bigint) => g.at(micros);
 const candles = (symbol: string) =>
-  [...h.db.candle.iter()]
+  g.rows
+    .candles()
     .filter(c => c.symbol === symbol)
     .sort((a, b) => (a.intervalStart < b.intervalStart ? -1 : 1));
+const schedArg = { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval' as const, value: null as any } } };
 
 let alice: TestAuth, bob: TestAuth;
 
 beforeEach(() => {
-  h = makeHarness();
-  at(10n * MINUTE + 5_000_000n); // 5s into minute 10
-  h.withReducerTx(TestAuth.internal(), ctx => mod.init(ctx, {}));
-  alice = player('alice');
-  bob = player('bob');
-  h.withReducerTx(alice, ctx => mod.register(ctx, { name: 'Alice' }));
-  h.withReducerTx(bob, ctx => mod.register(ctx, { name: 'Bob' }));
+  g = createGame({ t0: 10n * MINUTE + 5_000_000n }); // 5s into minute 10
+  h = g.h;
+  alice = g.newPlayer('Alice');
+  bob = g.newPlayer('Bob');
 });
 
 describe('candles', () => {
@@ -65,7 +47,7 @@ describe('candles', () => {
     limit(bob, 'BRKT', 'sell', 4_100n, 2n);
     limit(alice, 'BRKT', 'buy', 4_100n, 2n);
 
-    expect(h.db.instrument.symbol.find('BRKT')!.lastPrice).toBe(4_100n);
+    expect(g.inst('BRKT')!.lastPrice).toBe(4_100n);
     expect(candles('BRKT')).toHaveLength(1);
     expect(candles('BRKT')[0]).toMatchObject({
       open: 4_250n,
@@ -95,10 +77,6 @@ describe('candles', () => {
   });
 
   it('clients cannot call roll_candles', () => {
-    expect(() =>
-      h.withReducerTx(alice, ctx =>
-        mod.roll_candles(ctx, { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval', value: null as any } } })
-      )
-    ).toThrow(/internal/);
+    expect(() => h.withReducerTx(alice, ctx => mod.roll_candles(ctx, schedArg))).toThrow(/internal/);
   });
 });

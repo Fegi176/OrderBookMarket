@@ -23,7 +23,7 @@ describe('Leaderboard', () => {
       entry(1n, 'Ada', 13_650_000n),
       entry(3n, 'Cy', 13_000_000n),
     ];
-    render(<Leaderboard me={ME} />);
+    render(<Leaderboard roomId={1n} me={ME} />);
     const rows = screen.getAllByRole('row').slice(1); // skip the header
     expect(rows.map(r => r.textContent)).toEqual([
       '1Ada (you)$136,500.00+5.00%',
@@ -34,7 +34,7 @@ describe('Leaderboard', () => {
 
   it("highlights the viewer's row and colours returns", () => {
     tableRows.leaderboard = [entry(1n, 'Ada', 13_650_000n), entry(2n, 'Bob', 12_000_000n)];
-    render(<Leaderboard me={ME} />);
+    render(<Leaderboard roomId={1n} me={ME} />);
     const [, ada, bob] = screen.getAllByRole('row');
     expect(ada).toHaveClass('me');
     expect(bob).not.toHaveClass('me');
@@ -44,11 +44,11 @@ describe('Leaderboard', () => {
 
   it('distinguishes loading from an empty board', () => {
     tableReady.value = false;
-    const { unmount } = render(<Leaderboard me={ME} />);
+    const { unmount } = render(<Leaderboard roomId={1n} me={ME} />);
     expect(screen.getByText('Loading leaderboard…')).toBeInTheDocument();
     unmount();
     tableReady.value = true;
-    render(<Leaderboard me={ME} />);
+    render(<Leaderboard roomId={1n} me={ME} />);
     expect(screen.getByText('No players yet.')).toBeInTheDocument();
   });
 });

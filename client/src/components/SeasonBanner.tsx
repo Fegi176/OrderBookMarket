@@ -14,11 +14,12 @@ function fmtRemaining(micros: bigint): string {
 }
 
 /**
- * "Season N · ends in …", plus a one-off notice when a new season starts while the
- * page is open (balances have just been reset under the player).
+ * "Season N · ends in …" for the current room, plus a one-off notice when a new season
+ * starts while the page is open (balances have just been reset under the player).
+ * Render it with `key={roomId}` so switching rooms doesn't look like a new season.
  */
-export default function SeasonBanner() {
-  const [seasons] = useTable(tables.season);
+export default function SeasonBanner({ roomId }: { roomId: bigint }) {
+  const [seasons] = useTable(tables.season.where(r => r.roomId.eq(roomId)));
   const active = seasons.find(s => s.status === 'active');
   const [now, setNow] = useState(() => BigInt(Date.now()) * 1000n);
   const seen = useRef<number | null>(null);

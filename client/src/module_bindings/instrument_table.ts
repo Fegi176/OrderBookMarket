@@ -11,7 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  symbol: __t.string().primaryKey(),
+  id: __t.u64().primaryKey(),
+  roomId: __t.u64().name("room_id"),
+  symbol: __t.string(),
   name: __t.string(),
   tickSize: __t.u64().name("tick_size"),
   lastPrice: __t.u64().name("last_price"),

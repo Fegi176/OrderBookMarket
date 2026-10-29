@@ -6,7 +6,7 @@ import OrderForm from './OrderForm';
 
 vi.mock('spacetimedb/react', () => spacetimeMock);
 
-const props = { symbol: 'BRKT', tickSize: 1n, lastPrice: 4_250n, cash: 10_000_000n, shares: 100n };
+const props = { roomId: 1n, symbol: 'BRKT', tickSize: 1n, lastPrice: 4_250n, cash: 10_000_000n, shares: 100n };
 
 function setup(overrides: Partial<typeof props> = {}) {
   const user = userEvent.setup();
@@ -31,6 +31,7 @@ describe('OrderForm', () => {
 
     await user.click(submit());
     expect(reducerSpies.placeLimitOrder).toHaveBeenCalledWith({
+      roomId: 1n,
       symbol: 'BRKT',
       side: 'buy',
       price: 4_250n,
@@ -47,7 +48,7 @@ describe('OrderForm', () => {
     expect(screen.getByText(/BRKT available 100/)).toBeInTheDocument();
 
     await user.click(submit());
-    expect(reducerSpies.placeMarketOrder).toHaveBeenCalledWith({ symbol: 'BRKT', side: 'sell', qty: 10n });
+    expect(reducerSpies.placeMarketOrder).toHaveBeenCalledWith({ roomId: 1n, symbol: 'BRKT', side: 'sell', qty: 10n });
   });
 
   it('sends a stop with its trigger price and explains when it fires', async () => {
@@ -58,6 +59,7 @@ describe('OrderForm', () => {
 
     await user.click(screen.getByRole('button', { name: /buy brkt on stop/i }));
     expect(reducerSpies.placeStopOrder).toHaveBeenCalledWith({
+      roomId: 1n,
       symbol: 'BRKT',
       side: 'buy',
       stopPrice: 4_500n,

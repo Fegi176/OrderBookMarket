@@ -22,18 +22,19 @@ const BAD = [
   'Analysts downgrade {name} to "sell"',
 ];
 
-/** Schedules the next news event a random 45-120 seconds from now. */
-export function scheduleNextNews(ctx: Ctx): void {
+/** Schedules the room's next news event a random 45-120 seconds from now. */
+export function scheduleNextNews(ctx: Ctx, roomId: bigint): void {
   const gapMicros = BigInt(ctx.random.integerInRange(MIN_GAP_SECS, MAX_GAP_SECS)) * 1_000_000n;
   ctx.db.newsSchedule.insert({
     scheduledId: 0n,
     scheduledAt: ScheduleAt.time(ctx.timestamp.microsSinceUnixEpoch + gapMicros),
+    roomId,
   });
 }
 
-/** Picks a company, moves its fair value up or down, and publishes a headline. */
-export function fireNews(ctx: Ctx): void {
-  const instruments = [...ctx.db.instrument.iter()];
+/** Picks a company in the room, moves its fair value up or down, and publishes a headline. */
+export function fireNews(ctx: Ctx, roomId: bigint): void {
+  const instruments = [...ctx.db.instrument.roomId.filter(roomId)];
   if (!instruments.length) return;
   const inst = instruments[ctx.random.integerInRange(0, instruments.length - 1)];
 
@@ -46,18 +47,20 @@ export function fireNews(ctx: Ctx): void {
     inst.name
   );
 
-  const state = ctx.db.marketState.symbol.find(inst.symbol);
+  let state = null;
+  for (const s of ctx.db.marketState.bySymbol.filter([roomId, inst.symbol])) state = s;
   const fair = state?.fairValue ?? inst.lastPrice;
   let next = (fair * BigInt(10_000 + impactBps)) / 10_000n;
   next -= next % inst.tickSize;
   const floor = inst.tickSize * 10n;
   if (next < floor) next = floor;
 
-  if (state) ctx.db.marketState.symbol.update({ ...state, fairValue: next });
-  else ctx.db.marketState.insert({ symbol: inst.symbol, fairValue: next });
+  if (state) ctx.db.marketState.id.update({ ...state, fairValue: next });
+  else ctx.db.marketState.insert({ id: 0n, roomId, symbol: inst.symbol, fairValue: next });
 
   ctx.db.news.insert({
     id: 0n,
+    roomId,
     symbol: inst.symbol,
     headline,
     impactBps,

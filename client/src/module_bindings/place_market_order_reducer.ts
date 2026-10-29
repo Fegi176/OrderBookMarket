@@ -11,6 +11,7 @@ import {
 } from "spacetimedb";
 
 export default {
+  roomId: __t.u64(),
   symbol: __t.string(),
   side: __t.string(),
   qty: __t.u64(),

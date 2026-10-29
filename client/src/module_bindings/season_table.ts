@@ -11,7 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  number: __t.u32().primaryKey(),
+  id: __t.u64().primaryKey(),
+  roomId: __t.u64().name("room_id"),
+  number: __t.u32(),
   startsAt: __t.timestamp().name("starts_at"),
   endsAt: __t.timestamp().name("ends_at"),
   status: __t.string(),

@@ -7,9 +7,9 @@ import { cmpBig, fmtCents, fmtReturn } from '../format';
 const SHOWN_PER_SEASON = 10;
 
 /** Final standings of every finished season, newest first. */
-export default function HallOfFame({ me }: { me: Identity }) {
-  const [results, ready] = useTable(tables.seasonResult);
-  const [seasons] = useTable(tables.season);
+export default function HallOfFame({ me, roomId }: { me: Identity; roomId: bigint }) {
+  const [results, ready] = useTable(tables.seasonResult.where(r => r.roomId.eq(roomId)));
+  const [seasons] = useTable(tables.season.where(r => r.roomId.eq(roomId)));
 
   const bySeason = useMemo(() => {
     const groups = new Map<number, typeof results[number][]>();

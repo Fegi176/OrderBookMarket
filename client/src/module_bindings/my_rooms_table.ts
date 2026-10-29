@@ -11,11 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  identity: __t.identity().primaryKey(),
+  id: __t.u64(),
   name: __t.string(),
-  cashAvailable: __t.u64().name("cash_available"),
-  cashReserved: __t.u64().name("cash_reserved"),
-  createdAt: __t.timestamp().name("created_at"),
-  isBot: __t.bool().name("is_bot"),
-  startingNetWorth: __t.u64().name("starting_net_worth"),
+  code: __t.string(),
+  isPublic: __t.bool().name("is_public"),
+  isOwner: __t.bool().name("is_owner"),
 });

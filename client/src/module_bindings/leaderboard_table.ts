@@ -11,6 +11,7 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
+  roomId: __t.u64().name("room_id"),
   identity: __t.identity(),
   name: __t.string(),
   netWorth: __t.u64().name("net_worth"),

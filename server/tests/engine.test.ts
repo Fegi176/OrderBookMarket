@@ -1,80 +1,39 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConnectionId, type Identity } from 'spacetimedb';
-import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
-import * as mod from '../src/index';
-import spacetimedb from '../src/schema';
+import type { Identity } from 'spacetimedb';
+import { createGame, type Game, type Harness, type TestAuth } from './helpers';
 import { EXCHANGE, STARTING_CASH, STARTING_SHARES, feeOn } from '../src/engine';
 
-const makeHarness = () => createModuleTestHarness(spacetimedb, mod);
+// Everything here runs in the Main room.
+let g: Game;
+let h: Harness;
 
-let h: ReturnType<typeof makeHarness>;
-let nextConn = 1n;
-
-function player(sub: string): TestAuth {
-  return TestAuth.fromJwtPayload(
-    JSON.stringify({ iss: 'https://test.local', sub, aud: ['order-book'] }),
-    new ConnectionId(nextConn++)
-  );
-}
-
-function identityOf(auth: TestAuth): Identity {
-  return h.withReducerTx(auth, ctx => ctx.sender);
-}
-
-function register(auth: TestAuth, name: string) {
-  h.withReducerTx(auth, ctx => mod.register(ctx, { name }));
-}
-
-function limit(auth: TestAuth, symbol: string, side: string, price: bigint, qty: bigint) {
-  h.withReducerTx(auth, ctx => mod.place_limit_order(ctx, { symbol, side, price, qty }));
-}
-
-function market(auth: TestAuth, symbol: string, side: string, qty: bigint) {
-  h.withReducerTx(auth, ctx => mod.place_market_order(ctx, { symbol, side, qty }));
-}
-
-function cancel(auth: TestAuth, orderId: bigint) {
-  h.withReducerTx(auth, ctx => mod.cancel_order(ctx, { orderId }));
-}
-
-function acct(id: Identity) {
-  const a = h.db.account.identity.find(id);
-  if (!a) throw new Error('no account');
-  return a;
-}
-
-function shares(id: Identity, symbol: string) {
-  for (const row of h.db.holding.byOwnerSymbol.filter([id, symbol])) return row;
-  throw new Error('no holding');
-}
-
-function openOrders(symbol: string) {
-  return [...h.db.orders.iter()].filter(o => o.symbol === symbol && o.status === 'open');
-}
+const limit = (a: TestAuth, symbol: string, side: string, price: bigint, qty: bigint) =>
+  g.limit(a, symbol, side, price, qty);
+const market = (a: TestAuth, symbol: string, side: string, qty: bigint) => g.market(a, symbol, side, qty);
+const cancel = (a: TestAuth, orderId: bigint) => g.cancel(a, orderId);
+const acct = (id: Identity) => g.acct(id);
+const shares = (id: Identity, symbol: string) => g.shares(id, symbol);
+const openOrders = (symbol: string) =>
+  [...h.db.orders.iter()].filter(o => o.symbol === symbol && o.status === 'open');
 
 let alice: TestAuth, bob: TestAuth, carol: TestAuth;
 let A: Identity, B: Identity, C: Identity;
 
 beforeEach(() => {
-  h = makeHarness();
-  h.withReducerTx(TestAuth.internal(), ctx => mod.init(ctx, {}));
-  alice = player('alice');
-  bob = player('bob');
-  carol = player('carol');
-  register(alice, 'Alice');
-  register(bob, 'Bob');
-  register(carol, 'Carol');
-  [A, B, C] = [alice, bob, carol].map(identityOf);
+  g = createGame();
+  h = g.h;
+  [alice, bob, carol] = ['Alice', 'Bob', 'Carol'].map(name => g.newPlayer(name));
+  [A, B, C] = [alice, bob, carol].map(g.id);
 });
 
-describe('register', () => {
+describe('joining', () => {
   it('grants starting cash and shares', () => {
     expect(acct(A).cashAvailable).toBe(STARTING_CASH);
     expect(shares(A, 'BRKT').qtyAvailable).toBe(STARTING_SHARES);
   });
 
-  it('rejects registering twice', () => {
-    expect(() => register(alice, 'Again')).toThrow(/Already registered/);
+  it('rejects joining the same room twice', () => {
+    expect(() => g.join(alice, 'Again')).toThrow(/Already in this room/);
   });
 });
 
@@ -257,10 +216,10 @@ describe('invariants', () => {
         if (roll < 2) market(who, symbol, side, qty);
         else if (roll < 4) {
           // A stop a few ticks either side of the last price, so the random flow fires some.
-          const last = h.db.instrument.symbol.find(symbol)!.lastPrice;
+          const last = g.inst(symbol)!.lastPrice;
           const offset = BigInt(1 + rand(10)) * 5n;
           const stopPrice = side === 'buy' ? last + offset : last - offset;
-          h.withReducerTx(who, ctx => mod.place_stop_order(ctx, { symbol, side, stopPrice, qty }));
+          g.stop(who, symbol, side, stopPrice, qty);
         } else limit(who, symbol, side, price, qty);
       } catch {}
     }

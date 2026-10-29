@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Identity, Infer } from 'spacetimedb';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
-import MyAccountRow from '../module_bindings/my_account_table';
+import MyAccountRow from '../module_bindings/my_accounts_table';
 import MyHoldingsRow from '../module_bindings/my_holdings_table';
 import InstrumentRow from '../module_bindings/instrument_table';
 import { cmpBig, fmtCents, fmtPrice, fmtReturn, fmtTime } from '../format';
@@ -10,6 +10,7 @@ import { mergeFills, percentOf, summarizePortfolio } from '../lib/market';
 
 type Props = {
   me: Identity;
+  roomId: bigint;
   account: Infer<typeof MyAccountRow>;
   holdings: readonly Infer<typeof MyHoldingsRow>[];
   instruments: readonly Infer<typeof InstrumentRow>[];
@@ -19,12 +20,12 @@ type Props = {
 const RECENT_FILLS = 20;
 const ORDER_HISTORY = 30;
 
-export default function Portfolio({ me, account, holdings, instruments, onTrade }: Props) {
+export default function Portfolio({ me, roomId, account, holdings, instruments, onTrade }: Props) {
   const cancel = useReducer(reducers.cancelOrder);
   const cancelStop = useReducer(reducers.cancelStopOrder);
   const [error, setError] = useState<string | null>(null);
   // All of this player's orders, any status: open ones get cancel buttons, the rest are history.
-  const [myOrders] = useTable(tables.orders.where(r => r.owner.eq(me)));
+  const [myOrders] = useTable(tables.orders.where(r => r.roomId.eq(roomId)).where(r => r.owner.eq(me)));
   const [stops] = useTable(tables.myStopOrders);
   const openOrders = myOrders.filter(o => o.status === 'open');
   const history = useMemo(
@@ -35,10 +36,10 @@ export default function Portfolio({ me, account, holdings, instruments, onTrade 
         .slice(0, ORDER_HISTORY),
     [myOrders]
   );
-  const stopRows = useMemo(() => [...stops].sort((a, b) => cmpBig(b.id, a.id)), [stops]);
+  const stopRows = useMemo(() => stops.filter(s => s.roomId === roomId).sort((a, b) => cmpBig(b.id, a.id)), [stops, roomId]);
   const onError = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
-  const [bought] = useTable(tables.trade.where(r => r.buyer.eq(me)));
-  const [sold] = useTable(tables.trade.where(r => r.seller.eq(me)));
+  const [bought] = useTable(tables.trade.where(r => r.roomId.eq(roomId)).where(r => r.buyer.eq(me)));
+  const [sold] = useTable(tables.trade.where(r => r.roomId.eq(roomId)).where(r => r.seller.eq(me)));
 
   const price = useMemo(() => new Map(instruments.map(i => [i.symbol, i.lastPrice])), [instruments]);
 

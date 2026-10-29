@@ -1,50 +1,24 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConnectionId, Timestamp } from 'spacetimedb';
-import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
-import * as mod from '../src/index';
-import spacetimedb from '../src/schema';
+import { createGame, type Game, type Harness, type TestAuth } from './helpers';
 import { EXCHANGE, STARTING_CASH, STARTING_SHARES } from '../src/engine';
 import { SEASON_LENGTH_MICROS } from '../src/seasons';
 
-const makeHarness = () => createModuleTestHarness(spacetimedb, mod, { rngSeed: 7 });
-let h: ReturnType<typeof makeHarness>;
-let nextConn = 1n;
-
-const internal = TestAuth.internal();
 const T0 = 1_800_000_000_000_000n;
-const schedArg = { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval' as const, value: null as any } } };
-const endSeason = () => h.withReducerTx(internal, ctx => mod.end_season(ctx, schedArg));
 
-function player(sub: string): TestAuth {
-  return TestAuth.fromJwtPayload(
-    JSON.stringify({ iss: 'https://test.local', sub, aud: ['order-book'] }),
-    new ConnectionId(nextConn++)
-  );
-}
+let g: Game;
+let h: Harness;
 
 function setup(players: string[]) {
-  h = makeHarness();
-  h.clock.set(new Timestamp(T0));
-  h.withReducerTx(internal, ctx => mod.init(ctx, {}));
-  return players.map(name => {
-    const auth = player(name);
-    h.withReducerTx(auth, ctx => mod.register(ctx, { name }));
-    return auth;
-  });
+  g = createGame({ rngSeed: 7, t0: T0 });
+  h = g.h;
+  return players.map(name => g.newPlayer(name));
 }
 
+const endSeason = () => g.endSeason();
 const limit = (a: TestAuth, symbol: string, side: string, price: bigint, qty: bigint) =>
-  h.withReducerTx(a, ctx => mod.place_limit_order(ctx, { symbol, side, price, qty }));
-
-function totals() {
-  let cash = 0n;
-  for (const a of h.db.account.iter()) cash += a.cashAvailable + a.cashReserved;
-  const qty: Record<string, bigint> = {};
-  for (const r of h.db.holding.iter()) qty[r.symbol] = (qty[r.symbol] ?? 0n) + r.qtyAvailable + r.qtyReserved;
-  return { cash, qty };
-}
-
-const seasons = () => [...h.db.season.iter()].sort((a, b) => a.number - b.number);
+  g.limit(a, symbol, side, price, qty);
+const totals = () => g.totals();
+const seasons = () => g.rows.seasons();
 
 let alice: TestAuth, bob: TestAuth;
 
@@ -70,7 +44,7 @@ describe('seasons', () => {
     limit(alice, 'BRKT', 'buy', 9_000n, 10n);
     limit(alice, 'BRKT', 'sell', 4_250n, 1n);
     limit(bob, 'BRKT', 'buy', 4_250n, 1n);
-    const before = mod.leaderboard(h.anonymousViewContext());
+    const before = g.leaderboard();
 
     endSeason();
 
@@ -87,13 +61,11 @@ describe('seasons', () => {
     limit(bob, 'BRKT', 'sell', 5_000n, 10n);
     limit(alice, 'BRKT', 'buy', 5_000n, 10n); // a trade, fees and a new last price
     limit(alice, 'GRVY', 'buy', 3_000n, 5n); // a resting order holding reserved cash
-    h.withReducerTx(bob, ctx =>
-      mod.place_stop_order(ctx, { symbol: 'PXL', side: 'sell', stopPrice: 900n, qty: 5n })
-    );
-    for (let i = 0; i < 5; i++) h.withReducerTx(internal, ctx => mod.run_bots(ctx, schedArg));
-    h.withReducerTx(internal, ctx => mod.fire_news_event(ctx, schedArg));
+    g.stop(bob, 'PXL', 'sell', 900n, 5n);
+    for (let i = 0; i < 5; i++) g.tick();
+    g.news();
 
-    h.clock.set(new Timestamp(T0 + SEASON_LENGTH_MICROS));
+    g.at(T0 + SEASON_LENGTH_MICROS);
     endSeason();
 
     expect(seasons().map(s => [s.number, s.status])).toEqual([
@@ -110,7 +82,7 @@ describe('seasons', () => {
 
     for (const inst of h.db.instrument.iter()) {
       expect(inst.lastPrice).toBe(inst.listingPrice);
-      expect(h.db.marketState.symbol.find(inst.symbol)!.fairValue).toBe(inst.listingPrice);
+      expect(g.fair(inst.symbol)).toBe(inst.listingPrice);
     }
 
     let listing = STARTING_CASH;
@@ -129,7 +101,7 @@ describe('seasons', () => {
   it('leaves the same totals as a fresh start with the same players', () => {
     limit(bob, 'BRKT', 'sell', 5_000n, 10n);
     limit(alice, 'BRKT', 'buy', 5_000n, 10n);
-    for (let i = 0; i < 20; i++) h.withReducerTx(internal, ctx => mod.run_bots(ctx, schedArg));
+    for (let i = 0; i < 20; i++) g.tick();
     endSeason();
     const afterReset = totals();
 
@@ -137,18 +109,16 @@ describe('seasons', () => {
     expect(afterReset).toEqual(totals());
   });
 
-  it('keeps accounts: players trade on in the new season without registering again', () => {
+  it('keeps accounts: players trade on in the new season without joining again', () => {
     endSeason();
-    expect(() => h.withReducerTx(alice, ctx => mod.register(ctx, { name: 'Alice' }))).toThrow(
-      /Already registered/
-    );
+    expect(() => g.join(alice, 'Alice')).toThrow(/Already in this room/);
     limit(bob, 'BRKT', 'sell', 4_300n, 5n);
     limit(alice, 'BRKT', 'buy', 4_300n, 5n);
     expect(h.db.trade.count()).toBe(1n);
   });
 
   it('clients cannot end a season', () => {
-    expect(() => h.withReducerTx(alice, ctx => mod.end_season(ctx, schedArg))).toThrow(/internal/);
+    expect(() => g.endSeason(g.main, alice)).toThrow(/internal/);
     expect(seasons()).toHaveLength(1);
   });
 });

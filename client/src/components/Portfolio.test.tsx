@@ -12,6 +12,8 @@ const OTHER = new Identity(2n);
 const ts = new Timestamp(1_800_000_000_000_000n);
 
 const account = {
+  id: 1n,
+  roomId: 1n,
   identity: ME,
   name: 'Ada',
   cashAvailable: 9_000_000n,
@@ -22,17 +24,19 @@ const account = {
 };
 const holding = (symbol: string, qtyAvailable: bigint, qtyReserved = 0n) => ({
   id: 0n,
+  roomId: 1n,
   owner: ME,
   symbol,
   qtyAvailable,
   qtyReserved,
 });
 const instruments = [
-  { symbol: 'BRKT', name: 'Bracket Robotics', tickSize: 1n, lastPrice: 5_000n, listingPrice: 4_250n },
-  { symbol: 'PXL', name: 'Pixel Pictures', tickSize: 1n, lastPrice: 1_000n, listingPrice: 960n },
+  { id: 1n, roomId: 1n, symbol: 'BRKT', name: 'Bracket Robotics', tickSize: 1n, lastPrice: 5_000n, listingPrice: 4_250n },
+  { id: 2n, roomId: 1n, symbol: 'PXL', name: 'Pixel Pictures', tickSize: 1n, lastPrice: 1_000n, listingPrice: 960n },
 ];
 const order = (id: bigint, status: string, extra: object = {}) => ({
   id,
+  roomId: 1n,
   owner: ME,
   symbol: 'BRKT',
   side: 'buy',
@@ -47,6 +51,7 @@ const order = (id: bigint, status: string, extra: object = {}) => ({
 });
 const stop = (id: bigint, status: string, note = '') => ({
   id,
+  roomId: 1n,
   owner: ME,
   symbol: 'PXL',
   side: 'sell',
@@ -62,6 +67,7 @@ function renderPortfolio(onTrade = vi.fn()) {
   render(
     <Portfolio
       me={ME}
+      roomId={1n}
       account={account}
       holdings={[holding('BRKT', 10n, 2n), holding('PXL', 0n, 0n)]}
       instruments={instruments}

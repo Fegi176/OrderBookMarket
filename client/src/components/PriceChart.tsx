@@ -12,8 +12,10 @@ const AXIS_W = 56;
 const TOP = 8; // headroom so the top axis label isn't clipped
 
 /** One-minute candlesticks with volume underneath, drawn straight from the candle table. */
-export default function PriceChart({ symbol }: { symbol: string }) {
-  const [rows, ready] = useTable(tables.candle.where(r => r.symbol.eq(symbol)));
+export default function PriceChart({ roomId, symbol }: { roomId: bigint; symbol: string }) {
+  const [rows, ready] = useTable(
+    tables.candle.where(r => r.roomId.eq(roomId)).where(r => r.symbol.eq(symbol))
+  );
 
   const bars = useMemo(
     () => [...rows].sort((a, b) => cmpBig(a.intervalStart, b.intervalStart)).slice(-BARS),

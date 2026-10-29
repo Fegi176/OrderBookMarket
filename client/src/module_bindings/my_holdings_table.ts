@@ -12,6 +12,7 @@ import {
 
 export default __t.row({
   id: __t.u64().primaryKey(),
+  roomId: __t.u64().name("room_id"),
   owner: __t.identity(),
   symbol: __t.string(),
   qtyAvailable: __t.u64().name("qty_available"),

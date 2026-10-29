@@ -227,6 +227,33 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 .big.down { color: var(--down); }
 .leaderboard { max-width: 640px; }
 
+/* Rooms */
+.join-screen { display: grid; place-items: center; padding: 48px 0; }
+.center-text { text-align: center; }
+.room-switch { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; }
+.room-switch select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+}
+.code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+.rooms { display: grid; gap: 12px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+.rooms-col { display: grid; gap: 12px; min-width: 0; }
+.rooms .panel { overflow-x: auto; }
+@media (max-width: 860px) {
+  .rooms { grid-template-columns: minmax(0, 1fr); }
+}
+.inline-form { display: flex; gap: 8px; }
+.inline-form input { flex: 1; min-width: 0; text-transform: uppercase; }
+.inline-form button.primary { width: auto; padding: 8px 16px; }
+
 /* Seasons */
 .season { white-space: nowrap; }
 .notice {

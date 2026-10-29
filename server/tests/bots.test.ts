@@ -1,40 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConnectionId, Timestamp } from 'spacetimedb';
-import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
-import * as mod from '../src/index';
-import spacetimedb from '../src/schema';
+import { createGame, mod, type Game, type Harness } from './helpers';
 import { MARKET_MAKER } from '../src/bots';
 
-const makeHarness = () => createModuleTestHarness(spacetimedb, mod, { rngSeed: 42 });
-let h: ReturnType<typeof makeHarness>;
+let g: Game;
+let h: Harness;
 
-const internal = TestAuth.internal();
-const schedArg = { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval' as const, value: null as any } } };
-const tick = () => h.withReducerTx(internal, ctx => mod.run_bots(ctx, schedArg));
-const news = () => h.withReducerTx(internal, ctx => mod.fire_news_event(ctx, schedArg));
-
-function player(sub: string): TestAuth {
-  return TestAuth.fromJwtPayload(
-    JSON.stringify({ iss: 'https://test.local', sub, aud: ['order-book'] }),
-    new ConnectionId(1n)
-  );
-}
-
+const tick = () => g.tick();
+const news = () => g.news();
+const player = (sub: string) => g.player(sub);
+const totals = () => g.totals();
 const openBook = (symbol: string) =>
   [...h.db.orders.iter()].filter(o => o.symbol === symbol && o.status === 'open');
-
-function totals() {
-  let cash = 0n;
-  for (const a of h.db.account.iter()) cash += a.cashAvailable + a.cashReserved;
-  const qty: Record<string, bigint> = {};
-  for (const r of h.db.holding.iter()) qty[r.symbol] = (qty[r.symbol] ?? 0n) + r.qtyAvailable + r.qtyReserved;
-  return { cash, qty };
-}
+const botsArg = { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval' as const, value: null as any } } };
 
 beforeEach(() => {
-  h = makeHarness();
-  h.clock.set(new Timestamp(1_000_000_000_000n));
-  h.withReducerTx(internal, ctx => mod.init(ctx, {}));
+  g = createGame({ rngSeed: 42, t0: 1_000_000_000_000n });
+  h = g.h;
 });
 
 describe('run_bots', () => {
@@ -75,9 +56,8 @@ describe('run_bots', () => {
 
   it('gives players liquidity to trade against', () => {
     tick();
-    const alice = player('alice');
-    h.withReducerTx(alice, ctx => mod.register(ctx, { name: 'Alice' }));
-    h.withReducerTx(alice, ctx => mod.place_market_order(ctx, { symbol: 'BRKT', side: 'buy', qty: 5n }));
+    const alice = g.newPlayer('Alice');
+    g.market(alice, 'BRKT', 'buy', 5n);
     expect([...h.db.trade.iter()].some(t => t.seller.isEqual(MARKET_MAKER))).toBe(true);
   });
 
@@ -98,8 +78,8 @@ describe('fire_news_event', () => {
     expect(Math.abs(item.impactBps)).toBeGreaterThanOrEqual(150);
     expect(Math.abs(item.impactBps)).toBeLessThanOrEqual(1200);
 
-    const inst = h.db.instrument.symbol.find(item.symbol)!;
-    const fair = h.db.marketState.symbol.find(item.symbol)!.fairValue;
+    const inst = g.inst(item.symbol)!;
+    const fair = g.fair(item.symbol);
     expect(fair === inst.lastPrice).toBe(false);
     expect(fair > inst.lastPrice).toBe(item.impactBps > 0);
     expect(h.db.newsSchedule.count()).toBe(scheduledBefore + 1n);
@@ -108,10 +88,10 @@ describe('fire_news_event', () => {
   it('bots walk the price toward fair value after news', () => {
     news();
     const [item] = [...h.db.news.iter()];
-    const start = h.db.instrument.symbol.find(item.symbol)!.lastPrice;
-    const fair = h.db.marketState.symbol.find(item.symbol)!.fairValue;
+    const start = g.inst(item.symbol)!.lastPrice;
+    const fair = g.fair(item.symbol);
     for (let i = 0; i < 150; i++) tick();
-    const end = h.db.instrument.symbol.find(item.symbol)!.lastPrice;
+    const end = g.inst(item.symbol)!.lastPrice;
     const gapBefore = Number(fair - start);
     const gapAfter = Number(fair - end);
     expect(Math.abs(gapAfter)).toBeLessThan(Math.abs(gapBefore) / 2);
@@ -119,7 +99,8 @@ describe('fire_news_event', () => {
 
   it('clients cannot trigger bots or news', () => {
     const alice = player('alice');
-    expect(() => h.withReducerTx(alice, ctx => mod.run_bots(ctx, schedArg))).toThrow(/internal/);
-    expect(() => h.withReducerTx(alice, ctx => mod.fire_news_event(ctx, schedArg))).toThrow(/internal/);
+    const newsArg = { arg: { ...botsArg.arg, roomId: g.main } };
+    expect(() => h.withReducerTx(alice, ctx => mod.run_bots(ctx, botsArg))).toThrow(/internal/);
+    expect(() => h.withReducerTx(alice, ctx => mod.fire_news_event(ctx, newsArg))).toThrow(/internal/);
   });
 });

@@ -3,12 +3,12 @@ import { useReducer } from 'spacetimedb/react';
 import { reducers } from '../module_bindings';
 import { TAKER_FEE_BPS, feeOn, fmtCents, fmtPrice, parseDollars, parseQty } from '../format';
 
-type Props = { symbol: string; tickSize: bigint; lastPrice: bigint; cash: bigint; shares: bigint };
+type Props = { roomId: bigint; symbol: string; tickSize: bigint; lastPrice: bigint; cash: bigint; shares: bigint };
 type Kind = 'limit' | 'market' | 'stop';
 
 const FEE_PCT = `${Number(TAKER_FEE_BPS) / 100}%`;
 
-export default function OrderForm({ symbol, tickSize, lastPrice, cash, shares }: Props) {
+export default function OrderForm({ roomId, symbol, tickSize, lastPrice, cash, shares }: Props) {
   const placeLimit = useReducer(reducers.placeLimitOrder);
   const placeMarket = useReducer(reducers.placeMarketOrder);
   const placeStop = useReducer(reducers.placeStopOrder);
@@ -31,9 +31,9 @@ export default function OrderForm({ symbol, tickSize, lastPrice, cash, shares }:
     setBusy(true);
     setStatus(null);
     try {
-      if (kind === 'limit') await placeLimit({ symbol, side, price: price!, qty });
-      else if (kind === 'market') await placeMarket({ symbol, side, qty });
-      else await placeStop({ symbol, side, stopPrice: price!, qty });
+      if (kind === 'limit') await placeLimit({ roomId, symbol, side, price: price!, qty });
+      else if (kind === 'market') await placeMarket({ roomId, symbol, side, qty });
+      else await placeStop({ roomId, symbol, side, stopPrice: price!, qty });
       const what = kind === 'stop' ? 'stop' : 'order';
       setStatus({ ok: true, text: `${side === 'buy' ? 'Buy' : 'Sell'} ${what} sent` });
     } catch (err) {

@@ -1,37 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConnectionId } from 'spacetimedb';
-import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
-import * as mod from '../src/index';
-import spacetimedb from '../src/schema';
+import { createGame, type Game, type TestAuth } from './helpers';
 import { STARTING_CASH, STARTING_SHARES, feeOn } from '../src/engine';
 
-const makeHarness = () => createModuleTestHarness(spacetimedb, mod);
-let h: ReturnType<typeof makeHarness>;
-let nextConn = 1n;
-
-function player(sub: string): TestAuth {
-  return TestAuth.fromJwtPayload(
-    JSON.stringify({ iss: 'https://test.local', sub, aud: ['order-book'] }),
-    new ConnectionId(nextConn++)
-  );
-}
-
-const board = () => mod.leaderboard(h.anonymousViewContext());
+let g: Game;
+const board = () => g.leaderboard();
 const limit = (auth: TestAuth, symbol: string, side: string, price: bigint, qty: bigint) =>
-  h.withReducerTx(auth, ctx => mod.place_limit_order(ctx, { symbol, side, price, qty }));
+  g.limit(auth, symbol, side, price, qty);
 
 let alice: TestAuth, bob: TestAuth;
 let listingValue: bigint;
 
 beforeEach(() => {
-  h = makeHarness();
-  h.withReducerTx(TestAuth.internal(), ctx => mod.init(ctx, {}));
-  alice = player('alice');
-  bob = player('bob');
-  h.withReducerTx(alice, ctx => mod.register(ctx, { name: 'Alice' }));
-  h.withReducerTx(bob, ctx => mod.register(ctx, { name: 'Bob' }));
+  g = createGame();
+  alice = g.newPlayer('Alice');
+  bob = g.newPlayer('Bob');
   listingValue = 0n;
-  for (const inst of h.db.instrument.iter()) listingValue += STARTING_SHARES * inst.lastPrice;
+  for (const inst of g.rows.instruments()) listingValue += STARTING_SHARES * inst.lastPrice;
 });
 
 describe('leaderboard', () => {

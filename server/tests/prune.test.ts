@@ -1,37 +1,27 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ConnectionId, Timestamp, type Identity } from 'spacetimedb';
-import { createModuleTestHarness, TestAuth } from 'spacetimedb/server/test-utils';
-import * as mod from '../src/index';
-import spacetimedb from '../src/schema';
+import type { Identity } from 'spacetimedb';
+import { createGame, type Game, type Harness, type TestAuth } from './helpers';
 import { MARKET_MAKER, NOISE_TRADER } from '../src/bots';
 import { BOT_TRADE_RETENTION_MICROS, CANDLE_RETENTION_MICROS } from '../src/prune';
 
-const makeHarness = () => createModuleTestHarness(spacetimedb, mod, { rngSeed: 3 });
-let h: ReturnType<typeof makeHarness>;
-
-const internal = TestAuth.internal();
 const T0 = 1_800_000_000_000_000n;
 const MINUTE = 60_000_000n;
-const schedArg = { arg: { scheduledId: 0n, scheduledAt: { tag: 'Interval' as const, value: null as any } } };
-const tick = () => h.withReducerTx(internal, ctx => mod.run_bots(ctx, schedArg));
-const roll = () => h.withReducerTx(internal, ctx => mod.roll_candles(ctx, schedArg));
-const at = (micros: bigint) => h.clock.set(new Timestamp(micros));
 
+let g: Game;
+let h: Harness;
+const tick = () => g.tick();
+const roll = () => g.roll();
+const at = (micros: bigint) => g.at(micros);
 const isBot = (id: Identity) => id.isEqual(MARKET_MAKER) || id.isEqual(NOISE_TRADER);
 
 let alice: TestAuth;
 let A: Identity;
 
 beforeEach(() => {
-  h = makeHarness();
-  at(T0);
-  h.withReducerTx(internal, ctx => mod.init(ctx, {}));
-  alice = TestAuth.fromJwtPayload(
-    JSON.stringify({ iss: 'https://test.local', sub: 'alice', aud: ['order-book'] }),
-    new ConnectionId(1n)
-  );
-  h.withReducerTx(alice, ctx => mod.register(ctx, { name: 'Alice' }));
-  A = h.withReducerTx(alice, ctx => ctx.sender);
+  g = createGame({ rngSeed: 3, t0: T0 });
+  h = g.h;
+  alice = g.newPlayer('Alice');
+  A = g.id(alice);
 });
 
 describe('pruning', () => {
@@ -45,10 +35,8 @@ describe('pruning', () => {
 
   it("never touches a player's orders", () => {
     tick();
-    h.withReducerTx(alice, ctx => mod.place_market_order(ctx, { symbol: 'BRKT', side: 'buy', qty: 3n }));
-    h.withReducerTx(alice, ctx =>
-      mod.place_limit_order(ctx, { symbol: 'GRVY', side: 'buy', price: 100n, qty: 1n })
-    );
+    g.market(alice, 'BRKT', 'buy', 3n);
+    g.limit(alice, 'GRVY', 'buy', 100n, 1n);
     for (let i = 0; i < 20; i++) tick();
     const mine = [...h.db.orders.iter()].filter(o => o.owner.isEqual(A));
     expect(mine.map(o => o.status).sort()).toEqual(['filled', 'open']);
@@ -56,7 +44,7 @@ describe('pruning', () => {
 
   it('drops bot-only trades past retention but keeps every trade with a player', () => {
     tick();
-    h.withReducerTx(alice, ctx => mod.place_market_order(ctx, { symbol: 'BRKT', side: 'buy', qty: 3n }));
+    g.market(alice, 'BRKT', 'buy', 3n);
     for (let i = 0; i < 30; i++) tick();
     const playerTrades = () => [...h.db.trade.iter()].filter(t => t.buyer.isEqual(A) || t.seller.isEqual(A));
     const botTrades = () => [...h.db.trade.iter()].filter(t => isBot(t.buyer) && isBot(t.seller));

@@ -12,6 +12,7 @@ import {
 
 export default __t.row({
   id: __t.u64().primaryKey(),
+  roomId: __t.u64().name("room_id"),
   seasonNumber: __t.u32().name("season_number"),
   rank: __t.u32(),
   identity: __t.identity(),

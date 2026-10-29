@@ -31,7 +31,7 @@ describe('OrderBook', () => {
       order('buy', 4_200n, 7n),
       order('buy', 4_200n, 1n),
     ];
-    const { container } = render(<OrderBook symbol="BRKT" me={ME} />);
+    const { container } = render(<OrderBook roomId={1n} symbol="BRKT" me={ME} />);
 
     // Asks are listed worst-to-best so the best ask sits just above the spread.
     expect(prices(container.querySelector('.asks')!)).toEqual(['43.00', '42.75']);
@@ -45,14 +45,14 @@ describe('OrderBook', () => {
 
   it('says so when a side is empty', () => {
     tableRows.orders = [order('buy', 4_000n, 1n)];
-    render(<OrderBook symbol="BRKT" me={ME} />);
+    render(<OrderBook roomId={1n} symbol="BRKT" me={ME} />);
     expect(screen.getByText('No sellers')).toBeInTheDocument();
     expect(screen.getByText('No spread yet')).toBeInTheDocument();
   });
 
   it('shows a loading state until the subscription is applied', () => {
     tableReady.value = false;
-    render(<OrderBook symbol="BRKT" me={ME} />);
+    render(<OrderBook roomId={1n} symbol="BRKT" me={ME} />);
     expect(screen.getByText('Loading book…')).toBeInTheDocument();
   });
 });

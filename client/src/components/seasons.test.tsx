@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { Identity, Timestamp } from 'spacetimedb';
-import { reducerSpies, resetSpacetimeMock, spacetimeMock, tableReady, tableRows } from '../test/spacetime';
+import { resetSpacetimeMock, spacetimeMock, tableReady, tableRows } from '../test/spacetime';
 import SeasonBanner from './SeasonBanner';
 import HallOfFame from './HallOfFame';
-import Register from './Register';
 
 vi.mock('spacetimedb/react', () => spacetimeMock);
 
@@ -30,12 +28,12 @@ describe('SeasonBanner', () => {
 
   it('counts down in days, hours, or minutes and seconds', () => {
     tableRows.season = [season(3, (2 * 86_400 + 4 * 3_600) * 1000)];
-    const { unmount } = render(<SeasonBanner />);
+    const { unmount } = render(<SeasonBanner roomId={1n} />);
     expect(screen.getByText(/ends in 2d 4h/)).toBeInTheDocument();
     unmount();
 
     tableRows.season = [season(3, 65_000)];
-    render(<SeasonBanner />);
+    render(<SeasonBanner roomId={1n} />);
     expect(screen.getByText(/ends in 1:05/)).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(6_000));
     expect(screen.getByText(/ends in 0:59/)).toBeInTheDocument();
@@ -43,17 +41,17 @@ describe('SeasonBanner', () => {
 
   it('announces a new season when the active number goes up', () => {
     tableRows.season = [season(1, 60_000)];
-    const { rerender } = render(<SeasonBanner />);
+    const { rerender } = render(<SeasonBanner roomId={1n} />);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
     tableRows.season = [season(1, 0, 'ended'), season(2, 7 * 86_400_000)];
-    rerender(<SeasonBanner />);
+    rerender(<SeasonBanner roomId={1n} />);
     expect(screen.getByRole('status')).toHaveTextContent('Season 2 has started');
   });
 
   it('does not announce the season already running when the page opens', () => {
     tableRows.season = [season(5, 60_000)];
-    render(<SeasonBanner />);
+    render(<SeasonBanner roomId={1n} />);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });
@@ -75,7 +73,7 @@ describe('HallOfFame', () => {
       result(2, 2, 'Ada', 1n, 12_000_000n),
       result(2, 1, 'Cy', 3n, 15_000_000n),
     ];
-    render(<HallOfFame me={ME} />);
+    render(<HallOfFame roomId={1n} me={ME} />);
     const headings = screen.getAllByRole('heading').map(h => h.textContent);
     expect(headings[0]).toMatch(/^Season 2/);
     expect(headings[1]).toMatch(/^Season 1/);
@@ -86,28 +84,13 @@ describe('HallOfFame', () => {
     tableRows.seasonResult = Array.from({ length: 12 }, (_, i) =>
       result(1, i + 1, i === 11 ? 'Ada' : `P${i}`, i === 11 ? 1n : BigInt(10 + i), BigInt(20_000_000 - i))
     );
-    render(<HallOfFame me={ME} />);
+    render(<HallOfFame roomId={1n} me={ME} />);
     expect(screen.getByText(/You finished #12 of 12/)).toBeInTheDocument();
   });
 
   it('explains the empty state', () => {
-    render(<HallOfFame me={ME} />);
+    render(<HallOfFame roomId={1n} me={ME} />);
     expect(screen.getByText(/No season has finished yet/)).toBeInTheDocument();
-  });
-});
-
-describe('Register', () => {
-  it('sends the name and shows a server rejection', async () => {
-    const user = userEvent.setup();
-    render(<Register />);
-    const button = screen.getByRole('button', { name: 'Start trading' });
-    expect(button).toBeDisabled();
-
-    reducerSpies.register.mockRejectedValueOnce(new Error('Already registered'));
-    await user.type(screen.getByLabelText('Name'), 'Ada');
-    await user.click(button);
-    expect(reducerSpies.register).toHaveBeenCalledWith({ name: 'Ada' });
-    expect(await screen.findByText('Already registered')).toBeInTheDocument();
   });
 });
 

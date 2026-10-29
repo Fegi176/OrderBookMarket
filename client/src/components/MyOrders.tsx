@@ -8,18 +8,18 @@ import { cmpBig, fmtPrice } from '../format';
  * Your open orders in this symbol (read from the book subscription) and your pending
  * stops (from the private my_stop_orders view), each with a cancel button.
  */
-export default function MyOrders({ symbol, me }: { symbol: string; me: Identity }) {
+export default function MyOrders({ roomId, symbol, me }: { roomId: bigint; symbol: string; me: Identity }) {
   const cancel = useReducer(reducers.cancelOrder);
   const cancelStop = useReducer(reducers.cancelStopOrder);
   const [error, setError] = useState<string | null>(null);
   const [open] = useTable(
-    tables.orders.where(r => r.symbol.eq(symbol)).where(r => r.status.eq('open'))
+    tables.orders.where(r => r.roomId.eq(roomId)).where(r => r.symbol.eq(symbol)).where(r => r.status.eq('open'))
   );
   const [stops] = useTable(tables.myStopOrders);
 
   const mine = open.filter(o => o.owner.isEqual(me)).sort((a, b) => cmpBig(b.seq, a.seq));
   const pending = stops
-    .filter(s => s.symbol === symbol && s.status === 'pending')
+    .filter(s => s.roomId === roomId && s.symbol === symbol && s.status === 'pending')
     .sort((a, b) => cmpBig(b.id, a.id));
 
   if (!mine.length && !pending.length) return null;

@@ -2,28 +2,67 @@ import { schema, table, t, type InferSchema, type ReducerCtx } from 'spacetimedb
 
 // All money is stored as integer cents and all quantities as whole shares.
 // u64 columns surface as `bigint` in TypeScript, so there is no float math anywhere.
+//
+// Every market table carries a `roomId`: each room is a separate market with its own
+// accounts, book, bots, news and seasons. Tables that need a room-wide pass have a
+// single-column `roomId` index; multi-column indexes are always looked up by their
+// full key (the SDK's unit-test harness can't decode prefix scans).
 
-/** One row per player. Private: clients read their own row through the `my_account` view. */
-export const account = table(
+/**
+ * A market players can join. Private, because it holds the invite code: clients see
+ * public rooms through `public_rooms` and the rooms they're in through `my_rooms`.
+ */
+export const room = table(
   { public: false },
   {
-    identity: t.identity().primaryKey(),
+    id: t.u64().primaryKey().autoInc(),
+    name: t.string(),
+    /** Six characters; needed to join a private room. */
+    code: t.string().unique(),
+    isPublic: t.bool(),
+    createdBy: t.identity(),
+    createdAt: t.timestamp(),
+  }
+);
+
+/**
+ * One row per player per room. Private: clients read their own rows through the
+ * `my_accounts` view.
+ */
+export const account = table(
+  {
+    public: false,
+    indexes: [
+      { accessor: 'byMember', algorithm: 'btree', columns: ['roomId', 'identity'] as const },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
+    identity: t.identity().index('btree'),
     name: t.string(),
     cashAvailable: t.u64(),
     cashReserved: t.u64(),
     createdAt: t.timestamp(),
     /** Bot accounts are owned by the module and left off the leaderboard. */
     isBot: t.bool(),
-    /** Net worth at registration (cash plus shares at that moment's last prices), for return %. */
+    /** Net worth at joining (cash plus shares at that moment's last prices), for return %. */
     startingNetWorth: t.u64(),
   }
 );
 
-/** The tradable companies. */
+/** The tradable companies, listed separately in every room. */
 export const instrument = table(
-  { public: true },
   {
-    symbol: t.string().primaryKey(),
+    public: true,
+    indexes: [
+      { accessor: 'bySymbol', algorithm: 'btree', columns: ['roomId', 'symbol'] as const },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
+    symbol: t.string(),
     name: t.string(),
     tickSize: t.u64(),
     /** Last traded price, seeded with the listing price before the first trade. */
@@ -33,7 +72,7 @@ export const instrument = table(
   }
 );
 
-/** Shares each player owns. Private: clients read their own rows through `my_holdings`. */
+/** Shares each player owns, per room. Private: clients read their own through `my_holdings`. */
 export const holding = table(
   {
     public: false,
@@ -41,13 +80,14 @@ export const holding = table(
       {
         accessor: 'byOwnerSymbol',
         algorithm: 'btree',
-        columns: ['owner', 'symbol'] as const,
+        columns: ['roomId', 'owner', 'symbol'] as const,
       },
     ],
   },
   {
     id: t.u64().primaryKey().autoInc(),
-    owner: t.identity(),
+    roomId: t.u64().index('btree'),
+    owner: t.identity().index('btree'),
     symbol: t.string(),
     qtyAvailable: t.u64(),
     qtyReserved: t.u64(),
@@ -55,11 +95,10 @@ export const holding = table(
 );
 
 /**
- * The order book. Public, so clients subscribe per symbol to open orders.
+ * The order book. Public, so clients subscribe per room and symbol to open orders.
  * `side` is 'buy' | 'sell' and `status` is 'open' | 'filled' | 'cancelled'.
  * The `book` index is a full-key lookup of one side's open orders; the engine sorts
- * them by price and sequence. (Prefix and `Range` scans don't work under the SDK's
- * unit-test harness, so the index avoids them.)
+ * them by price and sequence.
  */
 export const orders = table(
   {
@@ -68,17 +107,14 @@ export const orders = table(
       {
         accessor: 'book',
         algorithm: 'btree',
-        columns: ['symbol', 'side', 'status'] as const,
+        columns: ['roomId', 'symbol', 'side', 'status'] as const,
       },
-      {
-        accessor: 'byOwner',
-        algorithm: 'btree',
-        columns: ['owner'] as const,
-      },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] as const },
     ],
   },
   {
     id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
     owner: t.identity(),
     symbol: t.string(),
     side: t.string(),
@@ -106,17 +142,14 @@ export const stopOrder = table(
       {
         accessor: 'bySymbolStatus',
         algorithm: 'btree',
-        columns: ['symbol', 'status'] as const,
+        columns: ['roomId', 'symbol', 'status'] as const,
       },
-      {
-        accessor: 'byOwner',
-        algorithm: 'btree',
-        columns: ['owner'] as const,
-      },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] as const },
     ],
   },
   {
     id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
     owner: t.identity(),
     symbol: t.string(),
     side: t.string(),
@@ -136,7 +169,8 @@ export const trade = table(
   { public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    symbol: t.string().index('btree'),
+    roomId: t.u64().index('btree'),
+    symbol: t.string(),
     price: t.u64(),
     qty: t.u64(),
     buyer: t.identity(),
@@ -157,13 +191,14 @@ export const candle = table(
       {
         accessor: 'bySymbolStart',
         algorithm: 'btree',
-        columns: ['symbol', 'intervalStart'] as const,
+        columns: ['roomId', 'symbol', 'intervalStart'] as const,
       },
     ],
   },
   {
     id: t.u64().primaryKey().autoInc(),
-    symbol: t.string().index('btree'),
+    roomId: t.u64().index('btree'),
+    symbol: t.string(),
     /** Start of the bar, in microseconds since the Unix epoch. */
     intervalStart: t.u64(),
     open: t.u64(),
@@ -174,7 +209,7 @@ export const candle = table(
   }
 );
 
-/** Drives `roll_candles` once per candle interval. */
+/** Drives `roll_candles` once per candle interval, for every room. */
 export const candleSchedule = table(
   { public: false },
   {
@@ -184,24 +219,32 @@ export const candleSchedule = table(
 );
 
 /**
- * Hidden "true value" per symbol. News moves it; the market-maker bot quotes around a
- * point drifting from the last price toward it, so prices react gradually. Private so
- * players have to read the news rather than the table.
+ * Hidden "true value" per room and symbol. News moves it; the market-maker bot quotes
+ * around a point drifting from the last price toward it, so prices react gradually.
+ * Private so players have to read the news rather than the table.
  */
 export const marketState = table(
-  { public: false },
   {
-    symbol: t.string().primaryKey(),
+    public: false,
+    indexes: [
+      { accessor: 'bySymbol', algorithm: 'btree', columns: ['roomId', 'symbol'] as const },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
+    symbol: t.string(),
     fairValue: t.u64(),
   }
 );
 
-/** Market events shown to every player. */
+/** Market events, shown to everyone in the room. */
 export const news = table(
   { public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    symbol: t.string().index('btree'),
+    roomId: t.u64().index('btree'),
+    symbol: t.string(),
     headline: t.string(),
     /** Change applied to fair value, in basis points (+250 = +2.5%). */
     impactBps: t.i32(),
@@ -209,7 +252,7 @@ export const news = table(
   }
 );
 
-/** Drives `run_bots` on a fixed interval. */
+/** Drives `run_bots` on a fixed interval, for every room. */
 export const botSchedule = table(
   { public: false },
   {
@@ -218,23 +261,26 @@ export const botSchedule = table(
   }
 );
 
-/** Holds the next `fire_news_event`; each event schedules the one after it at a random time. */
+/** Holds each room's next `fire_news_event`; every event schedules the one after it. */
 export const newsSchedule = table(
   { public: false },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
+    roomId: t.u64(),
   }
 );
 
 /**
- * Time-boxed rounds. Exactly one season is 'active'; when it ends, standings are saved
- * to `season_result` and every account, book and price is reset for the next one.
+ * Time-boxed rounds, per room. Each room has exactly one 'active' season; when it
+ * ends, standings are saved to `season_result` and the room's market is reset.
  */
 export const season = table(
   { public: true },
   {
-    number: t.u32().primaryKey(),
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64().index('btree'),
+    number: t.u32(),
     startsAt: t.timestamp(),
     endsAt: t.timestamp(),
     /** 'active' | 'ended' */
@@ -247,7 +293,8 @@ export const seasonResult = table(
   { public: true },
   {
     id: t.u64().primaryKey().autoInc(),
-    seasonNumber: t.u32().index('btree'),
+    roomId: t.u64().index('btree'),
+    seasonNumber: t.u32(),
     rank: t.u32(),
     identity: t.identity(),
     name: t.string(),
@@ -256,12 +303,13 @@ export const seasonResult = table(
   }
 );
 
-/** Fires `end_season` once, at the active season's end time. */
+/** Fires `end_season` once per room, at that room's active season's end time. */
 export const seasonSchedule = table(
   { public: false },
   {
     scheduledId: t.u64().primaryKey().autoInc(),
     scheduledAt: t.scheduleAt(),
+    roomId: t.u64(),
   }
 );
 
@@ -275,6 +323,7 @@ export const counter = table(
 );
 
 const spacetimedb = schema({
+  room,
   account,
   instrument,
   holding,
@@ -296,3 +345,5 @@ export default spacetimedb;
 
 export type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
 export type Order = typeof orders.rowType.type;
+export type Account = typeof account.rowType.type;
+export type Instrument = typeof instrument.rowType.type;

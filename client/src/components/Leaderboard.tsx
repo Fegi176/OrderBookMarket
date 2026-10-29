@@ -5,8 +5,8 @@ import { tables } from '../module_bindings';
 import { cmpBig, fmtCents, fmtReturn } from '../format';
 
 /** Players ranked by net worth at last trade prices. Computed server-side; bots excluded. */
-export default function Leaderboard({ me }: { me: Identity }) {
-  const [rows, ready] = useTable(tables.leaderboard);
+export default function Leaderboard({ me, roomId }: { me: Identity; roomId: bigint }) {
+  const [rows, ready] = useTable(tables.leaderboard.where(r => r.roomId.eq(roomId)));
   const ranked = useMemo(() => [...rows].sort((a, b) => cmpBig(b.netWorth, a.netWorth)), [rows]);
 
   if (!ranked.length) {

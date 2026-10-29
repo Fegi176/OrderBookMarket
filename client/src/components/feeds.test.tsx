@@ -23,7 +23,7 @@ describe('TradeFeed', () => {
       { id: 2n, symbol: 'BRKT', price: 4_100n, qty: 2n, buyer: ME, seller: OTHER, timestamp: ts },
       { id: 3n, symbol: 'BRKT', price: 4_050n, qty: 3n, buyer: OTHER, seller: ME, timestamp: ts },
     ];
-    render(<TradeFeed symbol="BRKT" me={ME} />);
+    render(<TradeFeed roomId={1n} symbol="BRKT" me={ME} />);
     expect(screen.getByText('40.50')).toHaveClass('down');
     expect(screen.getByText('41.00')).toHaveClass('up');
     expect(screen.getByText('you bought')).toBeInTheDocument();
@@ -32,11 +32,11 @@ describe('TradeFeed', () => {
 
   it('distinguishes loading from no trades', () => {
     tableReady.value = false;
-    const { unmount } = render(<TradeFeed symbol="BRKT" me={ME} />);
+    const { unmount } = render(<TradeFeed roomId={1n} symbol="BRKT" me={ME} />);
     expect(screen.getByText('Loading trades…')).toBeInTheDocument();
     unmount();
     tableReady.value = true;
-    render(<TradeFeed symbol="BRKT" me={ME} />);
+    render(<TradeFeed roomId={1n} symbol="BRKT" me={ME} />);
     expect(screen.getByText('No trades yet.')).toBeInTheDocument();
   });
 });
@@ -49,7 +49,7 @@ describe('NewsFeed', () => {
     ];
     const onSelect = vi.fn();
     const user = userEvent.setup();
-    render(<NewsFeed onSelect={onSelect} />);
+    render(<NewsFeed roomId={1n} onSelect={onSelect} />);
     const items = screen.getAllByRole('button');
     expect(items[0]).toHaveTextContent('▼ PXL');
     expect(items[1]).toHaveTextContent('▲ BRKT');
@@ -65,12 +65,12 @@ describe('MyOrders', () => {
       { id: 2n, owner: OTHER, symbol: 'BRKT', side: 'sell', price: 4_500n, qty: 1n, remaining: 1n, seq: 2n, status: 'open' },
     ];
     tableRows.myStopOrders = [
-      { id: 9n, owner: ME, symbol: 'BRKT', side: 'sell', stopPrice: 3_800n, qty: 5n, status: 'pending' },
-      { id: 8n, owner: ME, symbol: 'PXL', side: 'sell', stopPrice: 900n, qty: 5n, status: 'pending' },
-      { id: 7n, owner: ME, symbol: 'BRKT', side: 'buy', stopPrice: 5_000n, qty: 5n, status: 'triggered' },
+      { id: 9n, roomId: 1n, owner: ME, symbol: 'BRKT', side: 'sell', stopPrice: 3_800n, qty: 5n, status: 'pending' },
+      { id: 8n, roomId: 1n, owner: ME, symbol: 'PXL', side: 'sell', stopPrice: 900n, qty: 5n, status: 'pending' },
+      { id: 7n, roomId: 1n, owner: ME, symbol: 'BRKT', side: 'buy', stopPrice: 5_000n, qty: 5n, status: 'triggered' },
     ];
     const user = userEvent.setup();
-    render(<MyOrders symbol="BRKT" me={ME} />);
+    render(<MyOrders roomId={1n} symbol="BRKT" me={ME} />);
 
     expect(screen.getByText(/@ 40\.00/)).toBeInTheDocument();
     expect(screen.getByText('/10')).toBeInTheDocument(); // partly filled
@@ -87,7 +87,7 @@ describe('MyOrders', () => {
   });
 
   it('renders nothing when there is nothing open', () => {
-    const { container } = render(<MyOrders symbol="BRKT" me={ME} />);
+    const { container } = render(<MyOrders roomId={1n} symbol="BRKT" me={ME} />);
     expect(container).toBeEmptyDOMElement();
   });
 });
@@ -108,7 +108,7 @@ describe('PriceChart', () => {
     tableRows.candle = Array.from({ length: 70 }, (_, i) =>
       bar(BigInt(i), 4_000n, i % 2 ? 4_010n : 3_990n)
     );
-    const { container } = render(<PriceChart symbol="BRKT" />);
+    const { container } = render(<PriceChart roomId={1n} symbol="BRKT" />);
     expect(container.querySelectorAll('.candle')).toHaveLength(60);
     expect(container.querySelectorAll('.candle.up').length).toBe(30);
     expect(screen.getByRole('img', { name: /last 40\.10/ })).toBeInTheDocument();
@@ -116,17 +116,17 @@ describe('PriceChart', () => {
 
   it('skips the volume bar for a minute with no trades', () => {
     tableRows.candle = [bar(0n, 4_000n, 4_000n, 0n), bar(1n, 4_000n, 4_010n, 3n)];
-    const { container } = render(<PriceChart symbol="BRKT" />);
+    const { container } = render(<PriceChart roomId={1n} symbol="BRKT" />);
     expect(container.querySelectorAll('.vol')).toHaveLength(1);
   });
 
   it('distinguishes loading from no history', () => {
     tableReady.value = false;
-    const { unmount } = render(<PriceChart symbol="BRKT" />);
+    const { unmount } = render(<PriceChart roomId={1n} symbol="BRKT" />);
     expect(screen.getByText('Loading chart…')).toBeInTheDocument();
     unmount();
     tableReady.value = true;
-    render(<PriceChart symbol="BRKT" />);
+    render(<PriceChart roomId={1n} symbol="BRKT" />);
     expect(screen.getByText('No price history yet.')).toBeInTheDocument();
   });
 });

@@ -6,9 +6,9 @@ import { fmtPrice } from '../format';
 import { aggregateDepth, type Level } from '../lib/market';
 
 /** Aggregated depth: open orders grouped by price, best prices nearest the spread. */
-export default function OrderBook({ symbol, me }: { symbol: string; me: Identity }) {
+export default function OrderBook({ roomId, symbol, me }: { roomId: bigint; symbol: string; me: Identity }) {
   const [open, ready] = useTable(
-    tables.orders.where(r => r.symbol.eq(symbol)).where(r => r.status.eq('open'))
+    tables.orders.where(r => r.roomId.eq(roomId)).where(r => r.symbol.eq(symbol)).where(r => r.status.eq('open'))
   );
 
   const { bids, asks, spread } = useMemo(() => aggregateDepth(open, me), [open, me]);

@@ -8,15 +8,17 @@ import { type Infer as __Infer } from "spacetimedb";
 // Import all reducer arg schemas
 import CancelOrderReducer from "../cancel_order_reducer";
 import CancelStopOrderReducer from "../cancel_stop_order_reducer";
+import CreateRoomReducer from "../create_room_reducer";
+import JoinRoomReducer from "../join_room_reducer";
 import PlaceLimitOrderReducer from "../place_limit_order_reducer";
 import PlaceMarketOrderReducer from "../place_market_order_reducer";
 import PlaceStopOrderReducer from "../place_stop_order_reducer";
-import RegisterReducer from "../register_reducer";
 
 export type CancelOrderParams = __Infer<typeof CancelOrderReducer>;
 export type CancelStopOrderParams = __Infer<typeof CancelStopOrderReducer>;
+export type CreateRoomParams = __Infer<typeof CreateRoomReducer>;
+export type JoinRoomParams = __Infer<typeof JoinRoomReducer>;
 export type PlaceLimitOrderParams = __Infer<typeof PlaceLimitOrderReducer>;
 export type PlaceMarketOrderParams = __Infer<typeof PlaceMarketOrderReducer>;
 export type PlaceStopOrderParams = __Infer<typeof PlaceStopOrderReducer>;
-export type RegisterParams = __Infer<typeof RegisterReducer>;
 

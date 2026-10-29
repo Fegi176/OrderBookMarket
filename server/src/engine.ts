@@ -1,7 +1,10 @@
-import { Identity } from 'spacetimedb';
+import type { Identity } from 'spacetimedb';
 import { SenderError } from 'spacetimedb/server';
 import type { Ctx, Order } from './schema';
 import { recordTrade } from './candles';
+import { EXCHANGE } from './identities';
+
+export { EXCHANGE };
 
 export type Side = 'buy' | 'sell';
 
@@ -10,19 +13,20 @@ export const STARTING_SHARES = 100n; // of every instrument
 
 // ---------------------------------------------------------------------------
 // Fees: takers pay FEE_BPS on what they execute on arrival; resting (maker)
-// orders pay nothing. Fees move to the Exchange account, so cash is conserved.
+// orders pay nothing. Fees move to the room's Exchange account, so cash is conserved.
 // ---------------------------------------------------------------------------
 
 export const FEE_BPS = 10n; // 0.10%
-export const EXCHANGE = new Identity(0xb07_0000_0000_0000n);
 
 /** Fee on a notional amount in cents, rounded up to the next cent. */
 export const feeOn = (notional: bigint) => (notional * FEE_BPS + 9_999n) / 10_000n;
 
-/** Creates the fee-collecting Exchange account if missing. It's flagged as a bot. */
-export function ensureExchange(ctx: Ctx): void {
-  if (ctx.db.account.identity.find(EXCHANGE)) return;
+/** Creates the room's fee-collecting Exchange account if missing. It's flagged as a bot. */
+export function ensureExchange(ctx: Ctx, roomId: bigint): void {
+  if (findAccount(ctx, roomId, EXCHANGE)) return;
   ctx.db.account.insert({
+    id: 0n,
+    roomId,
     identity: EXCHANGE,
     name: 'Exchange',
     cashAvailable: 0n,
@@ -33,14 +37,14 @@ export function ensureExchange(ctx: Ctx): void {
   });
 }
 
-/** Moves `fee` from the payer's available cash to the Exchange account. */
-function chargeFee(ctx: Ctx, payer: Identity, fee: bigint): void {
+/** Moves `fee` from the payer's available cash to the room's Exchange account. */
+function chargeFee(ctx: Ctx, roomId: bigint, payer: Identity, fee: bigint): void {
   if (fee === 0n) return;
-  ensureExchange(ctx);
-  const acc = requireAccount(ctx, payer);
-  ctx.db.account.identity.update({ ...acc, cashAvailable: acc.cashAvailable - fee });
-  const ex = requireAccount(ctx, EXCHANGE);
-  ctx.db.account.identity.update({ ...ex, cashAvailable: ex.cashAvailable + fee });
+  ensureExchange(ctx, roomId);
+  const acc = requireAccount(ctx, roomId, payer);
+  ctx.db.account.id.update({ ...acc, cashAvailable: acc.cashAvailable - fee });
+  const ex = requireAccount(ctx, roomId, EXCHANGE);
+  ctx.db.account.id.update({ ...ex, cashAvailable: ex.cashAvailable + fee });
 }
 
 // ---------------------------------------------------------------------------
@@ -55,22 +59,32 @@ export function nextSeq(ctx: Ctx, name: string): bigint {
   return value;
 }
 
-function requireAccount(ctx: Ctx, who: Identity) {
-  const acc = ctx.db.account.identity.find(who);
-  if (!acc) throw new SenderError('Register before trading');
-  return acc;
-}
-
-function findHolding(ctx: Ctx, owner: Identity, symbol: string) {
-  for (const h of ctx.db.holding.byOwnerSymbol.filter([owner, symbol])) return h;
+export function findAccount(ctx: Ctx, roomId: bigint, who: Identity) {
+  for (const a of ctx.db.account.byMember.filter([roomId, who])) return a;
   return null;
 }
 
-/** Returns the holding row for (owner, symbol), creating an empty one if needed. */
-export function getOrCreateHolding(ctx: Ctx, owner: Identity, symbol: string) {
+export function requireAccount(ctx: Ctx, roomId: bigint, who: Identity) {
+  const acc = findAccount(ctx, roomId, who);
+  if (!acc) throw new SenderError('Join this room before trading');
+  return acc;
+}
+
+export function findInstrument(ctx: Ctx, roomId: bigint, symbol: string) {
+  for (const i of ctx.db.instrument.bySymbol.filter([roomId, symbol])) return i;
+  return null;
+}
+
+function findHolding(ctx: Ctx, roomId: bigint, owner: Identity, symbol: string) {
+  for (const h of ctx.db.holding.byOwnerSymbol.filter([roomId, owner, symbol])) return h;
+  return null;
+}
+
+/** Returns the holding row for (room, owner, symbol), creating an empty one if needed. */
+export function getOrCreateHolding(ctx: Ctx, roomId: bigint, owner: Identity, symbol: string) {
   return (
-    findHolding(ctx, owner, symbol) ??
-    ctx.db.holding.insert({ id: 0n, owner, symbol, qtyAvailable: 0n, qtyReserved: 0n })
+    findHolding(ctx, roomId, owner, symbol) ??
+    ctx.db.holding.insert({ id: 0n, roomId, owner, symbol, qtyAvailable: 0n, qtyReserved: 0n })
   );
 }
 
@@ -84,11 +98,17 @@ const min = (a: bigint, b: bigint) => (a < b ? a : b);
  * Resting orders on the opposite side that cross `price`, in price-time priority:
  * best price first, then lowest sequence number. A `null` price (market order) crosses everything.
  */
-function crossingOrders(ctx: Ctx, symbol: string, takerSide: Side, price: bigint | null): Order[] {
+function crossingOrders(
+  ctx: Ctx,
+  roomId: bigint,
+  symbol: string,
+  takerSide: Side,
+  price: bigint | null
+): Order[] {
   const restingSide: Side = takerSide === 'buy' ? 'sell' : 'buy';
   const crosses = (o: Order) =>
     price === null || (takerSide === 'buy' ? o.price <= price : o.price >= price);
-  const rows = [...ctx.db.orders.book.filter([symbol, restingSide, 'open'])].filter(crosses);
+  const rows = [...ctx.db.orders.book.filter([roomId, symbol, restingSide, 'open'])].filter(crosses);
   rows.sort((a, b) => {
     if (a.price !== b.price) {
       const cheaperFirst = a.price < b.price ? -1 : 1;
@@ -104,37 +124,39 @@ function crossingOrders(ctx: Ctx, symbol: string, takerSide: Side, price: bigint
  * Buyer cash was reserved at the buyer's own limit, so any price improvement is refunded.
  */
 function settle(ctx: Ctx, taker: Order, resting: Order, fill: bigint) {
+  const { roomId, symbol } = taker;
   const price = resting.price;
   const [buyOrder, sellOrder] = taker.side === 'buy' ? [taker, resting] : [resting, taker];
 
-  const buyer = requireAccount(ctx, buyOrder.owner);
+  const buyer = requireAccount(ctx, roomId, buyOrder.owner);
   const reservedForFill = buyOrder.price * fill;
   const cost = price * fill;
-  ctx.db.account.identity.update({
+  ctx.db.account.id.update({
     ...buyer,
     cashReserved: buyer.cashReserved - reservedForFill,
     cashAvailable: buyer.cashAvailable + (reservedForFill - cost),
   });
 
-  const seller = requireAccount(ctx, sellOrder.owner);
-  ctx.db.account.identity.update({ ...seller, cashAvailable: seller.cashAvailable + cost });
+  const seller = requireAccount(ctx, roomId, sellOrder.owner);
+  ctx.db.account.id.update({ ...seller, cashAvailable: seller.cashAvailable + cost });
 
-  const sellerHolding = getOrCreateHolding(ctx, sellOrder.owner, taker.symbol);
+  const sellerHolding = getOrCreateHolding(ctx, roomId, sellOrder.owner, symbol);
   ctx.db.holding.id.update({ ...sellerHolding, qtyReserved: sellerHolding.qtyReserved - fill });
 
-  const buyerHolding = getOrCreateHolding(ctx, buyOrder.owner, taker.symbol);
+  const buyerHolding = getOrCreateHolding(ctx, roomId, buyOrder.owner, symbol);
   ctx.db.holding.id.update({ ...buyerHolding, qtyAvailable: buyerHolding.qtyAvailable + fill });
 
   ctx.db.trade.insert({
     id: 0n,
-    symbol: taker.symbol,
+    roomId,
+    symbol,
     price,
     qty: fill,
     buyer: buyOrder.owner,
     seller: sellOrder.owner,
     timestamp: ctx.timestamp,
   });
-  recordTrade(ctx, taker.symbol, price, fill);
+  recordTrade(ctx, roomId, symbol, price, fill);
 }
 
 /** Executes `fill` shares between taker and resting, updates the resting order, returns the new taker. */
@@ -149,17 +171,17 @@ function fillAgainst(ctx: Ctx, taker: Order, resting: Order, fill: bigint): Orde
   return { ...taker, remaining: taker.remaining - fill };
 }
 
-export function validateSideAndQty(ctx: Ctx, symbol: string, side: string, qty: bigint) {
+export function validateSideAndQty(ctx: Ctx, roomId: bigint, symbol: string, side: string, qty: bigint) {
   if (side !== 'buy' && side !== 'sell') throw new SenderError("side must be 'buy' or 'sell'");
-  const inst = ctx.db.instrument.symbol.find(symbol);
+  const inst = findInstrument(ctx, roomId, symbol);
   if (!inst) throw new SenderError(`Unknown symbol ${symbol}`);
   if (qty <= 0n) throw new SenderError('qty must be positive');
   return { side: side as Side, inst };
 }
 
 /** Moves `qty` shares of `symbol` from available to reserved for `owner`. */
-export function reserveShares(ctx: Ctx, owner: Identity, symbol: string, qty: bigint) {
-  const h = findHolding(ctx, owner, symbol);
+export function reserveShares(ctx: Ctx, roomId: bigint, owner: Identity, symbol: string, qty: bigint) {
+  const h = findHolding(ctx, roomId, owner, symbol);
   if (!h || h.qtyAvailable < qty) throw new SenderError('Insufficient shares');
   ctx.db.holding.id.update({
     ...h,
@@ -168,9 +190,18 @@ export function reserveShares(ctx: Ctx, owner: Identity, symbol: string, qty: bi
   });
 }
 
-function insertOrder(ctx: Ctx, owner: Identity, symbol: string, side: Side, price: bigint, qty: bigint): Order {
+function insertOrder(
+  ctx: Ctx,
+  roomId: bigint,
+  owner: Identity,
+  symbol: string,
+  side: Side,
+  price: bigint,
+  qty: bigint
+): Order {
   return ctx.db.orders.insert({
     id: 0n,
+    roomId,
     owner,
     symbol,
     side,
@@ -192,6 +223,7 @@ function insertOrder(ctx: Ctx, owner: Identity, symbol: string, side: Side, pric
  */
 export function placeLimitOrder(
   ctx: Ctx,
+  roomId: bigint,
   owner: Identity,
   symbol: string,
   side: string,
@@ -199,31 +231,31 @@ export function placeLimitOrder(
   qty: bigint
 ): Order {
   // 1. Validate and reserve.
-  const { inst } = validateSideAndQty(ctx, symbol, side, qty);
+  const { inst } = validateSideAndQty(ctx, roomId, symbol, side, qty);
   if (price <= 0n) throw new SenderError('price must be positive');
   if (price % inst.tickSize !== 0n) {
     throw new SenderError(`price must be a multiple of the tick size (${inst.tickSize})`);
   }
 
-  const acc = requireAccount(ctx, owner);
+  const acc = requireAccount(ctx, roomId, owner);
   const feeReserve = side === 'buy' ? feeOn(price * qty) : 0n;
   if (side === 'buy') {
     const cost = price * qty;
     if (acc.cashAvailable < cost + feeReserve) throw new SenderError('Insufficient cash');
-    ctx.db.account.identity.update({
+    ctx.db.account.id.update({
       ...acc,
       cashAvailable: acc.cashAvailable - cost - feeReserve,
       cashReserved: acc.cashReserved + cost + feeReserve,
     });
   } else {
-    reserveShares(ctx, owner, symbol, qty);
+    reserveShares(ctx, roomId, owner, symbol, qty);
   }
 
-  let taker = insertOrder(ctx, owner, symbol, side as Side, price, qty);
+  let taker = insertOrder(ctx, roomId, owner, symbol, side as Side, price, qty);
   let notional = 0n;
 
   // 2-4. Walk the opposite side until filled or the book no longer crosses.
-  for (const resting of crossingOrders(ctx, symbol, taker.side as Side, price)) {
+  for (const resting of crossingOrders(ctx, roomId, symbol, taker.side as Side, price)) {
     if (taker.remaining === 0n) break;
     // 6. Self-trade prevention: skip our own resting orders.
     if (resting.owner.isEqual(owner)) continue;
@@ -235,15 +267,15 @@ export function placeLimitOrder(
   // Release the fee reserve, then charge the fee on what actually executed. Whatever
   // rests on the book is a maker order from here on and never pays a fee.
   if (feeReserve > 0n) {
-    const a = requireAccount(ctx, owner);
-    ctx.db.account.identity.update({
+    const a = requireAccount(ctx, roomId, owner);
+    ctx.db.account.id.update({
       ...a,
       cashReserved: a.cashReserved - feeReserve,
       cashAvailable: a.cashAvailable + feeReserve,
     });
   }
   const fee = feeOn(notional);
-  chargeFee(ctx, owner, fee);
+  chargeFee(ctx, roomId, owner, fee);
 
   // 5. Whatever is left stays on the book.
   return ctx.db.orders.id.update({
@@ -262,17 +294,24 @@ export function placeLimitOrder(
  * Every rejection happens before the first write, so callers (bots, stop triggers) can
  * catch the error without leaving a half-placed order behind.
  */
-export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side: string, qty: bigint): Order {
-  validateSideAndQty(ctx, symbol, side, qty);
-  const budget = requireAccount(ctx, owner).cashAvailable;
-  const book = crossingOrders(ctx, symbol, side as Side, null).filter(o => !o.owner.isEqual(owner));
+export function placeMarketOrder(
+  ctx: Ctx,
+  roomId: bigint,
+  owner: Identity,
+  symbol: string,
+  side: string,
+  qty: bigint
+): Order {
+  validateSideAndQty(ctx, roomId, symbol, side, qty);
+  const budget = requireAccount(ctx, roomId, owner).cashAvailable;
+  const book = crossingOrders(ctx, roomId, symbol, side as Side, null).filter(o => !o.owner.isEqual(owner));
   if (!book.length) throw new SenderError('No matching orders on the book');
   if (side === 'buy' && budget < book[0].price + feeOn(book[0].price)) {
     throw new SenderError('Insufficient cash');
   }
-  if (side === 'sell') reserveShares(ctx, owner, symbol, qty);
+  if (side === 'sell') reserveShares(ctx, roomId, owner, symbol, qty);
 
-  let taker = insertOrder(ctx, owner, symbol, side as Side, 0n, qty);
+  let taker = insertOrder(ctx, roomId, owner, symbol, side as Side, 0n, qty);
   let notional = 0n;
 
   for (const resting of book) {
@@ -289,10 +328,10 @@ export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side
       }
       if (fill === 0n) break; // asks only get pricier from here
       // Reserve exactly this fill's cost, then settle as if the limit were the resting price.
-      const acc = requireAccount(ctx, owner);
+      const acc = requireAccount(ctx, roomId, owner);
       const cost = resting.price * fill;
       notional += cost;
-      ctx.db.account.identity.update({
+      ctx.db.account.id.update({
         ...acc,
         cashAvailable: acc.cashAvailable - cost,
         cashReserved: acc.cashReserved + cost,
@@ -306,11 +345,11 @@ export function placeMarketOrder(ctx: Ctx, owner: Identity, symbol: string, side
   }
 
   const fee = feeOn(notional);
-  chargeFee(ctx, owner, fee);
+  chargeFee(ctx, roomId, owner, fee);
 
   if (taker.side === 'sell' && taker.remaining > 0n) {
     // Release the shares that found no buyer.
-    const h = getOrCreateHolding(ctx, owner, symbol);
+    const h = getOrCreateHolding(ctx, roomId, owner, symbol);
     ctx.db.holding.id.update({
       ...h,
       qtyReserved: h.qtyReserved - taker.remaining,
@@ -333,15 +372,15 @@ export function cancelOrder(ctx: Ctx, owner: Identity, orderId: bigint): void {
   if (order.status !== 'open') throw new SenderError(`Order is already ${order.status}`);
 
   if (order.side === 'buy') {
-    const acc = requireAccount(ctx, order.owner);
+    const acc = requireAccount(ctx, order.roomId, order.owner);
     const release = order.price * order.remaining;
-    ctx.db.account.identity.update({
+    ctx.db.account.id.update({
       ...acc,
       cashReserved: acc.cashReserved - release,
       cashAvailable: acc.cashAvailable + release,
     });
   } else {
-    const h = getOrCreateHolding(ctx, order.owner, order.symbol);
+    const h = getOrCreateHolding(ctx, order.roomId, order.owner, order.symbol);
     ctx.db.holding.id.update({
       ...h,
       qtyReserved: h.qtyReserved - order.remaining,

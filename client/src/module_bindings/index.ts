@@ -36,10 +36,11 @@ import {
 // Import all reducer arg schemas
 import CancelOrderReducer from "./cancel_order_reducer";
 import CancelStopOrderReducer from "./cancel_stop_order_reducer";
+import CreateRoomReducer from "./create_room_reducer";
+import JoinRoomReducer from "./join_room_reducer";
 import PlaceLimitOrderReducer from "./place_limit_order_reducer";
 import PlaceMarketOrderReducer from "./place_market_order_reducer";
 import PlaceStopOrderReducer from "./place_stop_order_reducer";
-import RegisterReducer from "./register_reducer";
 
 // Import all procedure arg schemas
 
@@ -47,11 +48,13 @@ import RegisterReducer from "./register_reducer";
 import CandleRow from "./candle_table";
 import InstrumentRow from "./instrument_table";
 import LeaderboardRow from "./leaderboard_table";
-import MyAccountRow from "./my_account_table";
+import MyAccountsRow from "./my_accounts_table";
 import MyHoldingsRow from "./my_holdings_table";
+import MyRoomsRow from "./my_rooms_table";
 import MyStopOrdersRow from "./my_stop_orders_table";
 import NewsRow from "./news_table";
 import OrdersRow from "./orders_table";
+import PublicRoomsRow from "./public_rooms_table";
 import SeasonRow from "./season_table";
 import SeasonResultRow from "./season_result_table";
 import TradeRow from "./trade_table";
@@ -66,10 +69,11 @@ const tablesSchema = __schema({
       { accessor: 'id', name: 'candle_id_idx_btree', algorithm: 'btree', columns: [
         'id',
       ] },
-      { accessor: 'symbol', name: 'candle_symbol_idx_btree', algorithm: 'btree', columns: [
-        'symbol',
+      { accessor: 'roomId', name: 'candle_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
       ] },
-      { accessor: 'bySymbolStart', name: 'candle_symbol_interval_start_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'bySymbolStart', name: 'candle_room_id_symbol_interval_start_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
         'symbol',
         'intervalStart',
       ] },
@@ -81,12 +85,19 @@ const tablesSchema = __schema({
   instrument: __table({
     name: 'instrument',
     indexes: [
-      { accessor: 'symbol', name: 'instrument_symbol_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'id', name: 'instrument_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'roomId', name: 'instrument_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+      ] },
+      { accessor: 'bySymbol', name: 'instrument_room_id_symbol_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
         'symbol',
       ] },
     ],
     constraints: [
-      { name: 'instrument_symbol_key', constraint: 'unique', columns: ['symbol'] },
+      { name: 'instrument_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, InstrumentRow),
   news: __table({
@@ -95,8 +106,8 @@ const tablesSchema = __schema({
       { accessor: 'id', name: 'news_id_idx_btree', algorithm: 'btree', columns: [
         'id',
       ] },
-      { accessor: 'symbol', name: 'news_symbol_idx_btree', algorithm: 'btree', columns: [
-        'symbol',
+      { accessor: 'roomId', name: 'news_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
       ] },
     ],
     constraints: [
@@ -112,7 +123,11 @@ const tablesSchema = __schema({
       { accessor: 'byOwner', name: 'orders_owner_idx_btree', algorithm: 'btree', columns: [
         'owner',
       ] },
-      { accessor: 'book', name: 'orders_symbol_side_status_idx_btree', algorithm: 'btree', columns: [
+      { accessor: 'roomId', name: 'orders_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
+      ] },
+      { accessor: 'book', name: 'orders_room_id_symbol_side_status_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
         'symbol',
         'side',
         'status',
@@ -125,12 +140,15 @@ const tablesSchema = __schema({
   season: __table({
     name: 'season',
     indexes: [
-      { accessor: 'number', name: 'season_number_idx_btree', algorithm: 'btree', columns: [
-        'number',
+      { accessor: 'id', name: 'season_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'roomId', name: 'season_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
       ] },
     ],
     constraints: [
-      { name: 'season_number_key', constraint: 'unique', columns: ['number'] },
+      { name: 'season_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, SeasonRow),
   seasonResult: __table({
@@ -139,8 +157,8 @@ const tablesSchema = __schema({
       { accessor: 'id', name: 'season_result_id_idx_btree', algorithm: 'btree', columns: [
         'id',
       ] },
-      { accessor: 'seasonNumber', name: 'season_result_season_number_idx_btree', algorithm: 'btree', columns: [
-        'seasonNumber',
+      { accessor: 'roomId', name: 'season_result_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
       ] },
     ],
     constraints: [
@@ -153,8 +171,8 @@ const tablesSchema = __schema({
       { accessor: 'id', name: 'trade_id_idx_btree', algorithm: 'btree', columns: [
         'id',
       ] },
-      { accessor: 'symbol', name: 'trade_symbol_idx_btree', algorithm: 'btree', columns: [
-        'symbol',
+      { accessor: 'roomId', name: 'trade_room_id_idx_btree', algorithm: 'btree', columns: [
+        'roomId',
       ] },
     ],
     constraints: [
@@ -168,13 +186,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, LeaderboardRow),
-  myAccount: __table({
-    name: 'my_account',
+  myAccounts: __table({
+    name: 'my_accounts',
     indexes: [
     ],
     constraints: [
     ],
-  }, MyAccountRow),
+  }, MyAccountsRow),
   myHoldings: __table({
     name: 'my_holdings',
     indexes: [
@@ -182,6 +200,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyHoldingsRow),
+  myRooms: __table({
+    name: 'my_rooms',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyRoomsRow),
   myStopOrders: __table({
     name: 'my_stop_orders',
     indexes: [
@@ -189,16 +214,24 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyStopOrdersRow),
+  publicRooms: __table({
+    name: 'public_rooms',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, PublicRoomsRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("cancel_order", CancelOrderReducer),
   __reducerSchema("cancel_stop_order", CancelStopOrderReducer),
+  __reducerSchema("create_room", CreateRoomReducer),
+  __reducerSchema("join_room", JoinRoomReducer),
   __reducerSchema("place_limit_order", PlaceLimitOrderReducer),
   __reducerSchema("place_market_order", PlaceMarketOrderReducer),
   __reducerSchema("place_stop_order", PlaceStopOrderReducer),
-  __reducerSchema("register", RegisterReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
@@ -207,12 +240,16 @@ const proceduresSchema = __procedures(
 
 type __SchemaWithTableAccessorAliases = Omit<typeof tablesSchema.schemaType, "tables"> & {
   tables: typeof tablesSchema.schemaType.tables & {
-    /** @deprecated Use `myAccount` instead. This alias will be removed in the next major version. */
-    readonly "my_account": Omit<typeof tablesSchema.schemaType.tables["myAccount"], "accessorName"> & { readonly accessorName: "my_account" };
+    /** @deprecated Use `myAccounts` instead. This alias will be removed in the next major version. */
+    readonly "my_accounts": Omit<typeof tablesSchema.schemaType.tables["myAccounts"], "accessorName"> & { readonly accessorName: "my_accounts" };
     /** @deprecated Use `myHoldings` instead. This alias will be removed in the next major version. */
     readonly "my_holdings": Omit<typeof tablesSchema.schemaType.tables["myHoldings"], "accessorName"> & { readonly accessorName: "my_holdings" };
+    /** @deprecated Use `myRooms` instead. This alias will be removed in the next major version. */
+    readonly "my_rooms": Omit<typeof tablesSchema.schemaType.tables["myRooms"], "accessorName"> & { readonly accessorName: "my_rooms" };
     /** @deprecated Use `myStopOrders` instead. This alias will be removed in the next major version. */
     readonly "my_stop_orders": Omit<typeof tablesSchema.schemaType.tables["myStopOrders"], "accessorName"> & { readonly accessorName: "my_stop_orders" };
+    /** @deprecated Use `publicRooms` instead. This alias will be removed in the next major version. */
+    readonly "public_rooms": Omit<typeof tablesSchema.schemaType.tables["publicRooms"], "accessorName"> & { readonly accessorName: "public_rooms" };
   };
 };
 
@@ -231,9 +268,11 @@ const REMOTE_MODULE = {
 >;
 
 const tableAccessorAliases = {
-  "my_account": "myAccount",
+  "my_accounts": "myAccounts",
   "my_holdings": "myHoldings",
+  "my_rooms": "myRooms",
   "my_stop_orders": "myStopOrders",
+  "public_rooms": "publicRooms",
 } as const;
 
 function __withTableAccessorAliases<T extends object>(target: T, freeze = false): T {
@@ -254,22 +293,30 @@ function __withTableAccessorAliases<T extends object>(target: T, freeze = false)
 
 type __DbViewBase = __DbConnectionImpl<typeof REMOTE_MODULE>["db"];
 export type DbView = __DbViewBase & {
-  /** @deprecated Use `myAccount` instead. This alias will be removed in the next major version. */
-  readonly "my_account": __DbViewBase["myAccount"];
+  /** @deprecated Use `myAccounts` instead. This alias will be removed in the next major version. */
+  readonly "my_accounts": __DbViewBase["myAccounts"];
   /** @deprecated Use `myHoldings` instead. This alias will be removed in the next major version. */
   readonly "my_holdings": __DbViewBase["myHoldings"];
+  /** @deprecated Use `myRooms` instead. This alias will be removed in the next major version. */
+  readonly "my_rooms": __DbViewBase["myRooms"];
   /** @deprecated Use `myStopOrders` instead. This alias will be removed in the next major version. */
   readonly "my_stop_orders": __DbViewBase["myStopOrders"];
+  /** @deprecated Use `publicRooms` instead. This alias will be removed in the next major version. */
+  readonly "public_rooms": __DbViewBase["publicRooms"];
 };
 
 type __TablesBase = __QueryBuilder<typeof tablesSchema.schemaType>;
 export type Tables = __TablesBase & {
-  /** @deprecated Use `myAccount` instead. This alias will be removed in the next major version. */
-  readonly "my_account": __TablesBase["myAccount"];
+  /** @deprecated Use `myAccounts` instead. This alias will be removed in the next major version. */
+  readonly "my_accounts": __TablesBase["myAccounts"];
   /** @deprecated Use `myHoldings` instead. This alias will be removed in the next major version. */
   readonly "my_holdings": __TablesBase["myHoldings"];
+  /** @deprecated Use `myRooms` instead. This alias will be removed in the next major version. */
+  readonly "my_rooms": __TablesBase["myRooms"];
   /** @deprecated Use `myStopOrders` instead. This alias will be removed in the next major version. */
   readonly "my_stop_orders": __TablesBase["myStopOrders"];
+  /** @deprecated Use `publicRooms` instead. This alias will be removed in the next major version. */
+  readonly "public_rooms": __TablesBase["publicRooms"];
 };
 
 /** The tables available in this remote SpacetimeDB module. Each table reference doubles as a query builder. */

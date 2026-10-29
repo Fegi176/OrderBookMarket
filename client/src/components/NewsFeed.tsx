@@ -6,8 +6,8 @@ import { cmpBig, fmtTime } from '../format';
 const SHOWN = 12;
 
 /** Market-wide headlines, newest first. Clicking one jumps to that company. */
-export default function NewsFeed({ onSelect }: { onSelect: (symbol: string) => void }) {
-  const [items, ready] = useTable(tables.news);
+export default function NewsFeed({ roomId, onSelect }: { roomId: bigint; onSelect: (symbol: string) => void }) {
+  const [items, ready] = useTable(tables.news.where(r => r.roomId.eq(roomId)));
   const recent = useMemo(
     () => [...items].sort((a, b) => cmpBig(b.id, a.id)).slice(0, SHOWN),
     [items]

@@ -7,8 +7,10 @@ import { recentTicks } from '../lib/market';
 
 const SHOWN = 30;
 
-export default function TradeFeed({ symbol, me }: { symbol: string; me: Identity }) {
-  const [trades, ready] = useTable(tables.trade.where(r => r.symbol.eq(symbol)));
+export default function TradeFeed({ roomId, symbol, me }: { roomId: bigint; symbol: string; me: Identity }) {
+  const [trades, ready] = useTable(
+    tables.trade.where(r => r.roomId.eq(roomId)).where(r => r.symbol.eq(symbol))
+  );
   const recent = useMemo(() => recentTicks(trades, SHOWN), [trades]);
 
   if (!recent.length) {

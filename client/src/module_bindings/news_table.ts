@@ -12,6 +12,7 @@ import {
 
 export default __t.row({
   id: __t.u64().primaryKey(),
+  roomId: __t.u64().name("room_id"),
   symbol: __t.string(),
   headline: __t.string(),
   impactBps: __t.i32().name("impact_bps"),

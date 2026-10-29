@@ -12,6 +12,7 @@ import {
 
 export default __t.row({
   id: __t.u64().primaryKey(),
+  roomId: __t.u64().name("room_id"),
   symbol: __t.string(),
   intervalStart: __t.u64().name("interval_start"),
   open: __t.u64(),

@@ -1,13 +1,17 @@
-import { Identity } from 'spacetimedb';
+import type { Identity } from 'spacetimedb';
 import type { Ctx, Order } from './schema';
-import { cancelOrder, getOrCreateHolding, placeLimitOrder, placeMarketOrder } from './engine';
+import {
+  cancelOrder,
+  findAccount,
+  getOrCreateHolding,
+  placeLimitOrder,
+  placeMarketOrder,
+} from './engine';
+import { MARKET_MAKER, NOISE_TRADER } from './identities';
 import { triggerStops } from './stops';
 import { pruneBotOrders } from './prune';
 
-// Fixed identities owned by the module. Real client identities are hashes, so these
-// can't collide with a player.
-export const MARKET_MAKER = new Identity(0xb07_0000_0000_0001n);
-export const NOISE_TRADER = new Identity(0xb07_0000_0000_0002n);
+export { MARKET_MAKER, NOISE_TRADER };
 
 const BOTS = [
   { identity: MARKET_MAKER, name: 'Liquidity Bot' },
@@ -35,12 +39,14 @@ function roundToTick(price: bigint, tick: bigint): bigint {
   return r < tick ? tick : r;
 }
 
-/** Creates bot accounts if missing and tops up their cash and shares. */
-export function ensureBots(ctx: Ctx): void {
+/** Creates the room's bot accounts if missing and tops up their cash and shares. */
+export function ensureBots(ctx: Ctx, roomId: bigint): void {
   for (const bot of BOTS) {
-    let acc = ctx.db.account.identity.find(bot.identity);
+    const acc = findAccount(ctx, roomId, bot.identity);
     if (!acc) {
-      acc = ctx.db.account.insert({
+      ctx.db.account.insert({
+        id: 0n,
+        roomId,
         identity: bot.identity,
         name: bot.name,
         cashAvailable: BOT_CASH,
@@ -50,10 +56,10 @@ export function ensureBots(ctx: Ctx): void {
         startingNetWorth: 0n,
       });
     } else if (acc.cashAvailable < BOT_CASH_FLOOR) {
-      ctx.db.account.identity.update({ ...acc, cashAvailable: BOT_CASH });
+      ctx.db.account.id.update({ ...acc, cashAvailable: BOT_CASH });
     }
-    for (const inst of ctx.db.instrument.iter()) {
-      const h = getOrCreateHolding(ctx, bot.identity, inst.symbol);
+    for (const inst of ctx.db.instrument.roomId.filter(roomId)) {
+      const h = getOrCreateHolding(ctx, roomId, bot.identity, inst.symbol);
       if (h.qtyAvailable < BOT_SHARES_FLOOR) {
         ctx.db.holding.id.update({ ...h, qtyAvailable: BOT_SHARES });
       }
@@ -61,10 +67,10 @@ export function ensureBots(ctx: Ctx): void {
   }
 }
 
-function openOrdersOf(ctx: Ctx, owner: Identity, symbol: string): Order[] {
+function openOrdersOf(ctx: Ctx, roomId: bigint, owner: Identity, symbol: string): Order[] {
   const mine: Order[] = [];
   for (const side of ['buy', 'sell']) {
-    for (const o of ctx.db.orders.book.filter([symbol, side, 'open'])) {
+    for (const o of ctx.db.orders.book.filter([roomId, symbol, side, 'open'])) {
       if (o.owner.isEqual(owner)) mine.push(o);
     }
   }
@@ -76,9 +82,9 @@ function openOrdersOf(ctx: Ctx, owner: Identity, symbol: string): Order[] {
  * complete and still centred near the anchor, so the order table doesn't churn.
  * Replaced bot quotes are deleted outright: nobody needs the bot's cancel history.
  */
-function quote(ctx: Ctx, symbol: string, tick: bigint, anchor: bigint): void {
+function quote(ctx: Ctx, roomId: bigint, symbol: string, tick: bigint, anchor: bigint): void {
   const halfSpread = bps(anchor, HALF_SPREAD_BPS);
-  const current = openOrdersOf(ctx, MARKET_MAKER, symbol);
+  const current = openOrdersOf(ctx, roomId, MARKET_MAKER, symbol);
   const bids = current.filter(o => o.side === 'buy');
   const asks = current.filter(o => o.side === 'sell');
   if (bids.length === LEVELS && asks.length === LEVELS) {
@@ -99,36 +105,42 @@ function quote(ctx: Ctx, symbol: string, tick: bigint, anchor: bigint): void {
     const qty = BigInt(ctx.random.integerInRange(10, 40));
     const bid = roundToTick(anchor - distance, tick);
     const ask = roundToTick(anchor + distance, tick);
-    placeLimitOrder(ctx, MARKET_MAKER, symbol, 'buy', bid, qty);
-    placeLimitOrder(ctx, MARKET_MAKER, symbol, 'sell', ask > bid ? ask : bid + tick, qty);
+    placeLimitOrder(ctx, roomId, MARKET_MAKER, symbol, 'buy', bid, qty);
+    placeLimitOrder(ctx, roomId, MARKET_MAKER, symbol, 'sell', ask > bid ? ask : bid + tick, qty);
   }
 }
 
 /** A small market order, tilted toward buying when the price is below fair value. */
-function noiseTrade(ctx: Ctx, symbol: string, last: bigint, fair: bigint): void {
+function noiseTrade(ctx: Ctx, roomId: bigint, symbol: string, last: bigint, fair: bigint): void {
   if (ctx.random() >= NOISE_CHANCE) return;
   const gap = Number(fair - last) / Number(last);
   const buyChance = 0.5 + Math.max(-0.3, Math.min(0.3, gap * 10));
   const side = ctx.random() < buyChance ? 'buy' : 'sell';
   const qty = BigInt(ctx.random.integerInRange(1, 8));
   try {
-    placeMarketOrder(ctx, NOISE_TRADER, symbol, side, qty);
+    placeMarketOrder(ctx, roomId, NOISE_TRADER, symbol, side, qty);
   } catch {
     // An empty side of the book just means no noise trade this tick.
   }
 }
 
-/** One bot tick: top up, then requote and maybe trade every symbol. */
-export function runBots(ctx: Ctx): void {
-  ensureBots(ctx);
-  for (const inst of ctx.db.instrument.iter()) {
-    const fair = ctx.db.marketState.symbol.find(inst.symbol)?.fairValue ?? inst.lastPrice;
+/** One bot tick in one room: top up, then requote and maybe trade every symbol. */
+export function runRoomBots(ctx: Ctx, roomId: bigint): void {
+  ensureBots(ctx, roomId);
+  for (const inst of [...ctx.db.instrument.roomId.filter(roomId)]) {
+    let fair = inst.lastPrice;
+    for (const s of ctx.db.marketState.bySymbol.filter([roomId, inst.symbol])) fair = s.fairValue;
     const last = inst.lastPrice;
     const jitter = bps(last, BigInt(ctx.random.integerInRange(-5, 5)));
     const anchor = roundToTick(last + ((fair - last) * DRIFT_PCT) / 100n + jitter, inst.tickSize);
-    quote(ctx, inst.symbol, inst.tickSize, anchor);
-    noiseTrade(ctx, inst.symbol, last, fair);
-    triggerStops(ctx, inst.symbol);
+    quote(ctx, roomId, inst.symbol, inst.tickSize, anchor);
+    noiseTrade(ctx, roomId, inst.symbol, last, fair);
+    triggerStops(ctx, roomId, inst.symbol);
   }
+}
+
+/** One bot tick across every room. */
+export function runBots(ctx: Ctx): void {
+  for (const room of [...ctx.db.room.iter()]) runRoomBots(ctx, room.id);
   for (const bot of BOTS) pruneBotOrders(ctx, bot.identity);
 }

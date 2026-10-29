@@ -11,6 +11,8 @@ import {
 } from "spacetimedb";
 
 export const Account = __t.object("Account", {
+  id: __t.u64(),
+  roomId: __t.u64(),
   identity: __t.identity(),
   name: __t.string(),
   cashAvailable: __t.u64(),
@@ -29,6 +31,7 @@ export type BotSchedule = __Infer<typeof BotSchedule>;
 
 export const Candle = __t.object("Candle", {
   id: __t.u64(),
+  roomId: __t.u64(),
   symbol: __t.string(),
   intervalStart: __t.u64(),
   open: __t.u64(),
@@ -53,6 +56,7 @@ export type Counter = __Infer<typeof Counter>;
 
 export const Holding = __t.object("Holding", {
   id: __t.u64(),
+  roomId: __t.u64(),
   owner: __t.identity(),
   symbol: __t.string(),
   qtyAvailable: __t.u64(),
@@ -61,6 +65,8 @@ export const Holding = __t.object("Holding", {
 export type Holding = __Infer<typeof Holding>;
 
 export const Instrument = __t.object("Instrument", {
+  id: __t.u64(),
+  roomId: __t.u64(),
   symbol: __t.string(),
   name: __t.string(),
   tickSize: __t.u64(),
@@ -73,6 +79,7 @@ export const Leaderboard = __t.object("Leaderboard", {});
 export type Leaderboard = __Infer<typeof Leaderboard>;
 
 export const LeaderboardEntry = __t.object("LeaderboardEntry", {
+  roomId: __t.u64(),
   identity: __t.identity(),
   name: __t.string(),
   netWorth: __t.u64(),
@@ -80,23 +87,46 @@ export const LeaderboardEntry = __t.object("LeaderboardEntry", {
 });
 export type LeaderboardEntry = __Infer<typeof LeaderboardEntry>;
 
+export const LobbyRoom = __t.object("LobbyRoom", {
+  id: __t.u64(),
+  name: __t.string(),
+  players: __t.u32(),
+  createdAt: __t.timestamp(),
+});
+export type LobbyRoom = __Infer<typeof LobbyRoom>;
+
 export const MarketState = __t.object("MarketState", {
+  id: __t.u64(),
+  roomId: __t.u64(),
   symbol: __t.string(),
   fairValue: __t.u64(),
 });
 export type MarketState = __Infer<typeof MarketState>;
 
-export const MyAccount = __t.object("MyAccount", {});
-export type MyAccount = __Infer<typeof MyAccount>;
+export const MemberRoom = __t.object("MemberRoom", {
+  id: __t.u64(),
+  name: __t.string(),
+  code: __t.string(),
+  isPublic: __t.bool(),
+  isOwner: __t.bool(),
+});
+export type MemberRoom = __Infer<typeof MemberRoom>;
+
+export const MyAccounts = __t.object("MyAccounts", {});
+export type MyAccounts = __Infer<typeof MyAccounts>;
 
 export const MyHoldings = __t.object("MyHoldings", {});
 export type MyHoldings = __Infer<typeof MyHoldings>;
+
+export const MyRooms = __t.object("MyRooms", {});
+export type MyRooms = __Infer<typeof MyRooms>;
 
 export const MyStopOrders = __t.object("MyStopOrders", {});
 export type MyStopOrders = __Infer<typeof MyStopOrders>;
 
 export const News = __t.object("News", {
   id: __t.u64(),
+  roomId: __t.u64(),
   symbol: __t.string(),
   headline: __t.string(),
   impactBps: __t.i32(),
@@ -107,11 +137,13 @@ export type News = __Infer<typeof News>;
 export const NewsSchedule = __t.object("NewsSchedule", {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),
+  roomId: __t.u64(),
 });
 export type NewsSchedule = __Infer<typeof NewsSchedule>;
 
 export const Orders = __t.object("Orders", {
   id: __t.u64(),
+  roomId: __t.u64(),
   owner: __t.identity(),
   symbol: __t.string(),
   side: __t.string(),
@@ -125,7 +157,22 @@ export const Orders = __t.object("Orders", {
 });
 export type Orders = __Infer<typeof Orders>;
 
+export const PublicRooms = __t.object("PublicRooms", {});
+export type PublicRooms = __Infer<typeof PublicRooms>;
+
+export const Room = __t.object("Room", {
+  id: __t.u64(),
+  name: __t.string(),
+  code: __t.string(),
+  isPublic: __t.bool(),
+  createdBy: __t.identity(),
+  createdAt: __t.timestamp(),
+});
+export type Room = __Infer<typeof Room>;
+
 export const Season = __t.object("Season", {
+  id: __t.u64(),
+  roomId: __t.u64(),
   number: __t.u32(),
   startsAt: __t.timestamp(),
   endsAt: __t.timestamp(),
@@ -135,6 +182,7 @@ export type Season = __Infer<typeof Season>;
 
 export const SeasonResult = __t.object("SeasonResult", {
   id: __t.u64(),
+  roomId: __t.u64(),
   seasonNumber: __t.u32(),
   rank: __t.u32(),
   identity: __t.identity(),
@@ -147,11 +195,13 @@ export type SeasonResult = __Infer<typeof SeasonResult>;
 export const SeasonSchedule = __t.object("SeasonSchedule", {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),
+  roomId: __t.u64(),
 });
 export type SeasonSchedule = __Infer<typeof SeasonSchedule>;
 
 export const StopOrder = __t.object("StopOrder", {
   id: __t.u64(),
+  roomId: __t.u64(),
   owner: __t.identity(),
   symbol: __t.string(),
   side: __t.string(),
@@ -166,6 +216,7 @@ export type StopOrder = __Infer<typeof StopOrder>;
 
 export const Trade = __t.object("Trade", {
   id: __t.u64(),
+  roomId: __t.u64(),
   symbol: __t.string(),
   price: __t.u64(),
   qty: __t.u64(),
